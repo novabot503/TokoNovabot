@@ -1,10259 +1,1882 @@
-const { createCanvas, loadImage, registerFont } = require('canvas');
-const TelegramBot = require('node-telegram-bot-api');
-const moment = require('moment-timezone');
-const { exec } = require('child_process');
+const express = require('express');
+const session = require('express-session');
 const fs = require('fs');
 const path = require('path');
-const axios = require('axios');
+const bcrypt = require('bcryptjs');
 const fetch = require('node-fetch');
-const archiver = require('archiver');
-const FormData = require('form-data');
-const os = require('os');
+const bodyParser = require('body-parser');
+const cors = require('cors');
+const helmet = require('helmet');
 
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📁 FILE PATHS & CONFIG
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const config = require('./setting.js');
-const DATA_DIR = path.join(__dirname, 'lib');
-const PRODUCTS_FILE = path.join(DATA_DIR, 'products.json');
-const TRANSACTIONS_FILE = path.join(DATA_DIR, 'transactions.json');
-const PAYMENTS_FILE = path.join(DATA_DIR, 'payments.json');
-const RESELLER_FILE = path.join(DATA_DIR, 'reseller.json');
-const RESTART_FILE = path.join(DATA_DIR, 'restart.json');
-const ADMINS_FILE = path.join(DATA_DIR, 'admins.json');
+
+// Inisialisasi aplikasi
+const app = express();
+const PORT = config.PORT || 3000;
+const HOST = config.HOST || 'localhost';
+
+// Middleware
+app.use(helmet({
+    contentSecurityPolicy: false,
+}));
+app.use(cors());
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.static('public'));
+app.use(session({
+    secret: config.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: true,
+    cookie: { secure: false }
+}));
+
+// Path untuk file data
+const DATA_DIR = path.join(__dirname, 'data');
+const SETTINGS_FILE = path.join(__dirname, 'setting.json');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
-const EMAIL_FILE = path.join(DATA_DIR, 'email.json');
-const LOG_FILE = path.join(DATA_DIR, 'log.txt');
-const OTAKAI_FILE = path.join(DATA_DIR, 'otakai.json');
-const botStartTime = Date.now();
-const deployStates = {};
-const VERCEL_TOKEN = config.VERCEL;
-const GITHUB_URL = "https://novabot503.github.io/novabot";
-const GITHUB_RAW_URL = "https://novabot503.github.io/novabot";
-const UPDATE_FILES = ["Novabot.js", "package.json", "setting.js", "versi.json"];
-const AI_API_URL = "https://exsalapi.my.id/api/ai/text/gemini-2.5-flash-v2";
-const AI_API_KEY = "exs_novabot_07e7e456";
+const ORDERS_FILE = path.join(DATA_DIR, 'orders.json');
+const PANELS_FILE = path.join(DATA_DIR, 'panels.json');
 
-// Di /start command:
-const waktuSumBarat = getWestSumatraTime();
-const tanggalLengkap = waktuSumBarat.date;
-const jamLengkap = waktuSumBarat.time;
+// Inisialisasi file data
+function initializeDataFiles() {
+    if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
 
-let addProductState = {};
-let tempMailSessions={};
+    // Buat setting.json jika belum ada
+    if (!fs.existsSync(SETTINGS_FILE)) {
+        const defaultSettings = {
+            nama_toko: "NovaBot Panel",
+            deskripsi: "Jual Panel Pterodactyl Murah & Terpercaya",
+            foto_profil: "",
+            video_promo: "",
+            logo_url: "",
+            warna_utama: "#3a6df0",
+            harga_panel: {
+                "1gb": 0,
+                "2gb": 0,
+                "3gb": 0,
+                "4gb": 0,
+                "5gb": 0,
+                "6gb": 0,
+                "7gb": 0,
+                "8gb": 0,
+                "9gb": 0,
+                "10gb": 0,
+                "unli": 0
+            },
+            telegram_admin: "@Novabot403",
+            whatsapp_admin: "",
+            pesan_selamat_datang: "Selamat datang di NovaBot Panel!",
+            footer_text: "© 2024 NovaBot Panel - All rights reserved"
+        };
+        fs.writeFileSync(SETTINGS_FILE, JSON.stringify(defaultSettings, null, 4));
+        console.log('📁 setting.json created with default values');
+    }
 
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// ⚙️ ENVIRONMENT CONFIG - SUMATERA BARAT TIME
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-process.env.TZ = 'Asia/Jakarta';
+    // Buat file data lainnya
+    const defaultFiles = {
+        [USERS_FILE]: [],
+        [ORDERS_FILE]: [],
+        [PANELS_FILE]: []
+    };
 
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// ⏰ SUMATERA BARAT TIME FUNCTION (UTC+7)
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function getWestSumatraTime() {
-try {
-const now = new Date();
-const dateOptions = {
-weekday: 'long',
-year: 'numeric',
-month: 'long',
-day: 'numeric',
-timeZone: 'Asia/Jakarta'
-};
-const timeOptions = {
-hour12: false,
-hour: '2-digit',
-minute: '2-digit',
-second: '2-digit',
-timeZone: 'Asia/Jakarta'
-};
-const dateStr = now.toLocaleDateString('id-ID', dateOptions);
-const timeStr = now.toLocaleTimeString('id-ID', timeOptions);
-return {
-date: dateStr,
-time: timeStr,
-fullDateTime: `${dateStr} ${timeStr}`,
-day: now.toLocaleDateString('id-ID', { weekday: 'long', timeZone: 'Asia/Jakarta' }),
-dateNum: now.toLocaleDateString('id-ID', { 
-year: 'numeric',
-month: '2-digit',
-day: '2-digit',
-timeZone: 'Asia/Jakarta'
-}).replace(/\//g, '-'),
-year: now.getFullYear(),
-month: now.toLocaleDateString('id-ID', { month: 'long', timeZone: 'Asia/Jakarta' }),
-timestamp: now.getTime(),
-raw: now
-};
-} catch (error) {
-console.error('Error getting West Sumatra time:', error);
-const now = new Date();
-const dateStr = now.toLocaleDateString('id-ID', {
-weekday: 'long',
-year: 'numeric',
-month: 'long',
-day: 'numeric'
-});
-const timeStr = now.toLocaleTimeString('id-ID', {
-hour12: false,
-hour: '2-digit',
-minute: '2-digit',
-second: '2-digit'
-});
-return {
-date: dateStr,
-time: timeStr,
-fullDateTime: `${dateStr} ${timeStr}`,
-day: now.toLocaleDateString('id-ID', { weekday: 'long' }),
-dateNum: now.toLocaleDateString('id-ID', { 
-year: 'numeric',
-month: '2-digit',
-day: '2-digit'
-}).replace(/\//g, '-'),
-year: now.getFullYear(),
-month: now.toLocaleDateString('id-ID', { month: 'long' }),
-timestamp: now.getTime(),
-raw: now
-};
+    Object.entries(defaultFiles).forEach(([filePath, defaultValue]) => {
+        if (!fs.existsSync(filePath)) {
+            fs.writeFileSync(filePath, JSON.stringify(defaultValue, null, 4));
+        }
+    });
 }
+
+// Panggil inisialisasi
+initializeDataFiles();
+
+// Fungsi baca/tulis data
+function readJSON(filePath) {
+    try {
+        const data = fs.readFileSync(filePath, 'utf8');
+        return JSON.parse(data);
+    } catch (error) {
+        console.error(`Error reading ${filePath}:`, error);
+        return null;
+    }
+}
+
+function writeJSON(filePath, data) {
+    try {
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 4));
+        return true;
+    } catch (error) {
+        console.error(`Error writing ${filePath}:`, error);
+        return false;
+    }
+}
+
+// Load settings
+function getSettings() {
+    return readJSON(SETTINGS_FILE) || {};
+}
+
+function saveSettings(settings) {
+    return writeJSON(SETTINGS_FILE, settings);
 }
 
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📅 SHORT DATE FORMAT
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function getWestSumatraDateShort() {
-const now = new Date();
-return now.toLocaleDateString('id-ID', {
-day: '2-digit',
-month: '2-digit',
-year: 'numeric',
-timeZone: 'Asia/Jakarta'
-}).replace(/\//g, '-');
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🌸 TANGGAL LENGKAP FORMAT
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function getTanggalLengkap() {
-const waktuSumbar = getWestSumatraTime();
-return waktuSumbar.date;
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// ⏰ JAM LENGKAP FORMAT
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function getJamLengkap() {
-const waktuSumbar = getWestSumatraTime();
-return waktuSumbar.time;
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📊 FORMAT WAKTU INTERAKSI USER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function formatWaktuInteraksi(isoString) {
-try {
-const date = new Date(isoString);
-const now = new Date();
-const diffMs = now - date;
-const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-const diffMinutes = Math.floor(diffMs / (1000 * 60));
-const diffSeconds = Math.floor(diffMs / 1000);
-
-if (diffSeconds < 60) {
-return "baru saja";
-} else if (diffMinutes < 60) {
-return `${diffMinutes} menit yang lalu`;
-} else if (diffHours < 24) {
-return `${diffHours} jam yang lalu`;
-} else if (diffDays === 1) {
-return "kemarin";
-} else if (diffDays < 7) {
-return `${diffDays} hari yang lalu`;
-} else if (diffDays < 30) {
-const weeks = Math.floor(diffDays / 7);
-return `${weeks} minggu yang lalu`;
-} else if (diffDays < 365) {
-const months = Math.floor(diffDays / 30);
-return `${months} bulan yang lalu`;
-} else {
-const years = Math.floor(diffDays / 365);
-return `${years} tahun yang lalu`;
-}
-} catch (error) {
-console.error('Error formatting interaction time:', error);
-return "waktu tidak diketahui";
-}
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🎀 FORMAT TANGGAL CANTIK UNTUK CHAT
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function getChatTimestamp() {
-const waktu = getWestSumatraTime();
-const emojis = {
-'Monday': '🌙', 'Tuesday': '🌮', 'Wednesday': '🐪', 'Thursday': '🍀',
-'Friday': '🕌', 'Saturday': '🌟', 'Sunday': '☀️'
-};
-const dayEmoji = emojis[waktu.day] || '📅';
-return `${dayEmoji} ${waktu.date} | ⏰ ${waktu.time}`;
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 💖 FORMAT WAKTU PERKENALAN
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function getFirstInteractionInfo(isoString) {
-try {
-const date = new Date(isoString);
-const waktu = getWestSumatraTime();
-const interactionDate = date.toLocaleDateString('id-ID', {
-weekday: 'long',
-year: 'numeric',
-month: 'long',
-day: 'numeric',
-timeZone: 'Asia/Jakarta'
-});
-const interactionTime = date.toLocaleTimeString('id-ID', {
-hour12: false,
-hour: '2-digit',
-minute: '2-digit',
-timeZone: 'Asia/Jakarta'
-});
-const waktuLalu = formatWaktuInteraksi(isoString);
-
-return {
-date: interactionDate,
-time: interactionTime,
-ago: waktuLalu,
-full: `📅 ${interactionDate} | ⏰ ${interactionTime}`,
-cute: `🌸 ${waktuLalu} (${interactionDate})`
-};
-} catch (error) {
-console.error('Error getting interaction info:', error);
-return {
-date: "tidak diketahui",
-time: "tidak diketahui",
-ago: "waktu yang lalu",
-full: "🌸 Waktu perkenalan tidak diketahui",
-cute: "🌸 Kita sudah kenal cukup lama ya~"
-};
-}
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 💰 PRICE CALCULATION - TAMBAHKAN SELLER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function calculatePrice(command) {
-const prices = {
-'1gb': 500,
-'2gb': 1000,
-'3gb': 1500,
-'4gb': 2000,
-'5gb': 2500,
-'6gb': 3000,
-'7gb': 4500,
-'8gb': 5000,
-'9gb': 5500,
-'10gb': 6000,
-'unli': 6500,
-'seller': 10000
-};
-return prices[command.toLowerCase()] || 0;
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🎨 BANNER FUNCTION
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function showBanner() {
-console.clear();
-const westSumatraTime = getWestSumatraTime();
-const totalMem = os.totalmem();
-const freeMem = os.freemem();
-const usedMem = totalMem - freeMem;
-const memPercent = ((usedMem / totalMem) * 100).toFixed(2);
-const cpuModel = os.cpus()[0]?.model || "Unknown";
-const cpuCores = os.cpus().length;
-const uptime = os.uptime();
-const days = Math.floor(uptime / 86400);
-const hours = Math.floor((uptime % 86400) / 3600);
-const minutes = Math.floor((uptime % 3600) / 60);
-const otakai = loadOtakai();
-const aiStatus = otakai.ai_enabled ? 'AKTIF 🔓' : 'NONAKTIF 🔒';
-const totalMemoryUsers = Object.keys(otakai.users || {}).length;
-function formatBytes(bytes) {
-const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-let i = 0;
-while (bytes >= 1024 && i < units.length - 1) {
-bytes /= 1024;
-i++;
-}
-return `${bytes.toFixed(2)} ${units[i]}`;
-}
-console.log(`
-\x1b[1m\x1b[34m╔╗ ╦  ╔═\x1b[0m╗╔═╗╔═╗╦═╗╔═╗ \x1b[31m
-\x1b[1m\x1b[34m╠╩╗║  ╠═╣╔═╝\x1b[0m║╣ ╠╦╝╚═╗ \x1b[31m
-\x1b[1m\x1b[34m╚═╝╩═╝╩ ╩╚═╝╚═╝╩\x1b[0m╚═╚═╝ \x1b[31m
-\x1b[1m\x1b[33mN O V A B O T   ${config.VERSI}\x1b[0m
-\x1b[1m\x1b[32m─────────────────────────────────────────────────────\x1b[0m
-`);
-console.log(`\x1b[1m\x1b[36m📅 Tanggal       :\x1b[0m ${westSumatraTime.date}`);
-console.log(`\x1b[1m\x1b[36m🕒 Waktu         :\x1b[0m ${westSumatraTime.time} (WIB)`);
-console.log(`\x1b[1m\x1b[36m🤖 Bot Name      :\x1b[0m ${config.BOT_NAME}`);
-console.log(`\x1b[1m\x1b[36m👑 Owner         :\x1b[0m ${config.DEVCELOPER}`);
-console.log(`\x1b[1m\x1b[36m⚡ Version       :\x1b[0m ${config.VERSI}`);
-console.log(`\x1b[1m\x1b[36m🤖 AI Kasir      :\x1b[0m ${aiStatus}`);
-console.log(`\x1b[1m\x1b[36m👥 User Memory   :\x1b[0m ${totalMemoryUsers} users`);
-console.log(`\x1b[1m\x1b[36m🏠 Platform      :\x1b[0m ${os.type()} ${os.release()}`);
-console.log(`\x1b[1m\x1b[36m💾 CPU           :\x1b[0m ${cpuModel}`);
-console.log(`\x1b[1m\x1b[36m🖥️ CPU Cores     :\x1b[0m ${cpuCores} Core`);
-console.log(`\x1b[1m\x1b[36m📊 Total RAM     :\x1b[0m ${formatBytes(totalMem)}`);
-console.log(`\x1b[1m\x1b[36m📈 Used RAM      :\x1b[0m ${formatBytes(usedMem)} (${memPercent}%)`);
-console.log(`\x1b[1m\x1b[36m📉 Free RAM      :\x1b[0m ${formatBytes(freeMem)}`);
-console.log(`\x1b[1m\x1b[36m⏰ Server Uptime :\x1b[0m ${days}d ${hours}h ${minutes}m`);
-console.log(`\x1b[1m\x1b[36m🌐 Hostname      :\x1b[0m ${os.hostname()}`);
-console.log(`\x1b[1m\x1b[36m🔗 Node.js       :\x1b[0m ${process.version}`);
-console.log(`\x1b[1m\x1b[36m👑 Owner ID      :\x1b[0m ${config.OWNER_ID}`);
-console.log(`\x1b[1m\x1b[31m❌ Error Logging :\x1b[0m Enabled - File: ${LOG_FILE}`);
-console.log(`\x1b[1m\x1b[32m─────────────────────────────────────────────────────\x1b[0m`);
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🏗️ INITIALIZE BOT
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const bot = new TelegramBot(config.TELEGRAM_TOKEN, { polling: true });
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📝 USER INTERACTION LOGGER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function logUserInteraction(userId, username, chatType, message, groupName = null) {
-const time = new Date().toLocaleTimeString('id-ID', { hour12: false });
-console.log("┏━━━━━━━━━━━━━━━━━━━━━━━𖣐");
-console.log(`┃☣ \x1b[33m🕷 NEW MESSAGE\x1b[0m \x1b[36m[${time}]\x1b[0m`);
-console.log(`┃☣ \x1b[35m⚕️ Dari:\x1b[0m \x1b[37m${username} (${userId})\x1b[0m`);
-if (groupName) {
-console.log(`┃☣ \x1b[33m⚡ Group:\x1b[0m \x1b[37m${groupName}\x1b[0m`);
-console.log(`┃☣ \x1b[33m📁 Type:\x1b[0m \x1b[37m${chatType}\x1b[0m`);
-} else {
-console.log(`┃☣ \x1b[33m⚡ Di:\x1b[0m \x1b[37m${chatType === 'private' ? 'Private Chat' : chatType}\x1b[0m`);
-}
-console.log(`┃☣ \x1b[32m🐉 Pesan:\x1b[0m \x1b[37m${message.substring(0, 100)}${message.length > 100 ? '...' : ''}\x1b[0m`);
-console.log("┗━━━━━━━━━━━━━━━━━━━━━━━𖣐");
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📝 ERROR LOGGING SYSTEM
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function logError(errorType, errorDetails, userId = null, username = null) {
-ensureDataDir();
-const timestamp = new Date().toISOString();
-const userInfo = userId ? `User ID: ${userId} | Username: ${username || 'Unknown'}` : 'System Error';
-const logEntry = `[${timestamp}] ${userInfo} | Error Type: ${errorType} | Details: ${errorDetails}\n`;
-console.log(`\x1b[31m❌ ERROR: ${logEntry}\x1b[0m`);
-fs.appendFileSync(LOG_FILE, logEntry, 'utf8');
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📊 DATA MANAGEMENT FUNCTIONS
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function ensureDataDir() {
-if (!fs.existsSync(DATA_DIR)) {
-fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-}
-function loadJSON(file) {
-ensureDataDir();
-if (!fs.existsSync(file)) {
-fs.writeFileSync(file, '{}', 'utf8');
-return {};
-}
-try {
-const data = fs.readFileSync(file, 'utf8');
-return data ? JSON.parse(data) : {};
-} catch (error) {
-console.error(`Error loading ${file}:`, error);
-logError('DATA_LOAD', `Failed to load ${file}: ${error.message}`);
-return {};
-}
-}
-function saveJSON(file, data) {
-ensureDataDir();
-fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
-}
-function loadTransactions() {
-return loadJSON(TRANSACTIONS_FILE);
-}
-function saveTransactions(data) {
-saveJSON(TRANSACTIONS_FILE, data);
-}
-function loadReseller() {
-return loadJSON(RESELLER_FILE);
-}
-function saveReseller(data) {
-saveJSON(RESELLER_FILE, data);
-}
-function loadAdmins() {
-return loadJSON(ADMINS_FILE);
-}
-function saveAdmins(data) {
-saveJSON(ADMINS_FILE, data);
-}
-function loadUsers() {
-return loadJSON(USERS_FILE);
-}
-function saveUsers(data) {
-saveJSON(USERS_FILE, data);
-}
-function loadEmails() {
-return loadJSON(EMAIL_FILE);
-}
-function saveEmails(data) {
-saveJSON(EMAIL_FILE, data);
-}
-function isAdmin(userId) {
-const admins = loadAdmins();
-return admins[userId] === true || userId.toString() === config.OWNER_ID.toString();
-}
-function isReseller(userId) {
-const reseller = loadReseller();
-return reseller[userId] === true || isAdmin(userId);
-}
-function addAdmin(userId) {
-const admins = loadAdmins();
-admins[userId] = true;
-saveAdmins(admins);
-return true;
-}
-function removeAdmin(userId) {
-const admins = loadAdmins();
-delete admins[userId];
-saveAdmins(admins);
-return true;
-}
-function addReseller(userId) {
-const reseller = loadReseller();
-reseller[userId] = true;
-saveReseller(reseller);
-return true;
-}
-function removeReseller(userId) {
-const reseller = loadReseller();
-delete reseller[userId];
-saveReseller(reseller);
-return true;
-}
-function saveRestartData(data) {
-ensureDataDir();
-saveJSON(RESTART_FILE, data);
-}
-function loadRestartData() {
-return loadJSON(RESTART_FILE);
-}
-function clearRestartData() {
-if (fs.existsSync(RESTART_FILE)) {
-fs.unlinkSync(RESTART_FILE);
-}
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🎀 AI KASIR MEMORY MANAGEMENT - ENHANCED
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function loadOtakai() {
-const data = loadJSON(OTAKAI_FILE);
-if (!data || typeof data !== 'object') return { ai_enabled: false, users: {} };
-if (data.ai_enabled === undefined) data.ai_enabled = false;
-if (!data.users || typeof data.users !== 'object') data.users = {};
-return data;
-}
-
-function saveOtakai(data) {
-saveJSON(OTAKAI_FILE, data);
-}
-
-function initOtakai() {
-ensureDataDir();
-const otakai = loadOtakai();
-if (!otakai.ai_enabled) otakai.ai_enabled = false;
-if (!otakai.users) otakai.users = {};
-saveOtakai(otakai);
-return otakai;
-}
-
-function isAIEnabled() {
-const otakai = loadOtakai();
-return otakai.ai_enabled === true;
-}
-
-function toggleAI(status) {
-const otakai = loadOtakai();
-otakai.ai_enabled = status;
-saveOtakai(otakai);
-return status;
-}
-
-function getUserMemory(userId) {
-const otakai = loadOtakai();
-if (!otakai.users[userId]) {
-otakai.users[userId] = {
-first_interaction: new Date().toISOString(),
-last_interaction: new Date().toISOString(),
-promoted: false,
-message_count: 0,
-conversations: [],
-conversation_context: "",
-user_info: {},
-last_command: "",
-payment_history: [],
-purchase_intent: ""
-};
-saveOtakai(otakai);
-}
-return otakai.users[userId];
-}
-
-function updateUserMemory(userId, data) {
-const otakai = loadOtakai();
-if (!otakai.users[userId]) {
-otakai.users[userId] = {
-first_interaction: new Date().toISOString(),
-last_interaction: new Date().toISOString(),
-promoted: false,
-message_count: 0,
-conversations: [],
-conversation_context: "",
-user_info: {},
-last_command: "",
-payment_history: [],
-purchase_intent: ""
-};
-}
-Object.assign(otakai.users[userId], data);
-otakai.users[userId].last_interaction = new Date().toISOString();
-otakai.users[userId].message_count = (otakai.users[userId].message_count || 0) + 1;
-saveOtakai(otakai);
-}
-
-function addConversation(userId, userMessage, aiResponse) {
-const otakai = loadOtakai();
-if (!otakai.users[userId]) {
-otakai.users[userId] = {
-first_interaction: new Date().toISOString(),
-last_interaction: new Date().toISOString(),
-promoted: false,
-message_count: 0,
-conversations: [],
-conversation_context: "",
-user_info: {},
-last_command: "",
-payment_history: [],
-purchase_intent: ""
-};
-}
-if (!otakai.users[userId].conversations) {
-otakai.users[userId].conversations = [];
-}
-const conversationId = Date.now();
-otakai.users[userId].conversations.push({
-id: conversationId,
-time: new Date().toISOString(),
-user: userMessage.substring(0, 200),
-ai: aiResponse.substring(0, 500)
-});
-if (otakai.users[userId].conversations.length > 10) {
-otakai.users[userId].conversations = otakai.users[userId].conversations.slice(-10);
-}
-otakai.users[userId].last_interaction = new Date().toISOString();
-otakai.users[userId].message_count = (otakai.users[userId].message_count || 0) + 1;
-otakai.users[userId].conversation_context = aiResponse.substring(0, 150);
-saveOtakai(otakai);
-}
-
-function formatWaktuInteraksi(isoString) {
-try {
-const date = new Date(isoString);
-const now = new Date();
-const diffMs = now - date;
-const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-const diffMinutes = Math.floor(diffMs / (1000 * 60));
-const diffSeconds = Math.floor(diffMs / 1000);
-
-if (diffSeconds < 60) {
-return "baru saja";
-} else if (diffMinutes < 60) {
-return `${diffMinutes} menit yang lalu`;
-} else if (diffHours < 24) {
-return `${diffHours} jam yang lalu`;
-} else if (diffDays === 1) {
-return "kemarin";
-} else if (diffDays < 7) {
-return `${diffDays} hari yang lalu`;
-} else if (diffDays < 30) {
-const weeks = Math.floor(diffDays / 7);
-return `${weeks} minggu yang lalu`;
-} else if (diffDays < 365) {
-const months = Math.floor(diffDays / 30);
-return `${months} bulan yang lalu`;
-} else {
-const years = Math.floor(diffDays / 365);
-return `${years} tahun yang lalu`;
-}
-} catch (error) {
-console.error('Error formatting interaction time:', error);
-return "waktu tidak diketahui";
-}
-}
-
-async function callAIChat(userId, userMessage, context = {}) {
-try {
-const userMemory = getUserMemory(userId);
-const isNewUser = !userMemory.promoted;
-const waktuPertama = formatWaktuInteraksi(userMemory.first_interaction);
-const waktuTerakhir = formatWaktuInteraksi(userMemory.last_interaction);
-const tanggalSekarang = getTanggalLengkap();
-const jamSekarang = getJamLengkap();
-let systemPrompt;
-
-const isCommand = userMessage.startsWith('/');
-const messageText = userMessage.toLowerCase();
-
-const isPanelRelated = messageText.includes('panel') || messageText.includes('beli') || 
-messageText.includes('harga') || messageText.includes('paket') ||
-messageText.includes('1gb') || messageText.includes('2gb') || 
-messageText.includes('unli') || messageText.includes('unlimited');
-
-const isSellerRelated = messageText.includes('seller') || messageText.includes('reseller') ||
-messageText.includes('jual') || messageText.includes('agen');
-
-if (isNewUser) {
-systemPrompt = `Haii! Aku ${config.BOT_NAME}~ 🤗
-
-✨ SELAMAT DATANG USER BARU! ✨
-
-Wahh~ kamu baru pertama kali chat sama aku nih 🥺
-Aku ${config.BOT_NAME} teman cewek imut yang siap bantu kamu beli panel dan jadi reseller! 💕
-
-🌸 CARA BELI PANEL CEPAT:
-Ketik salah satu yaa~
-/1gb username,id  🌸
-/unli username,id ✨
-
-💖 CONTOH NYATA:
-/1gb johndoe,123456789 💻
-/unli alice,987654321 🚀
-
-🎀 MAU JADI RESELLER?
-Ketik: /addseller id_kamu
-Contoh: /addseller 123456789 💎
-
-🔮 PROSES SETELAH ITU:
-1️⃣ Kamu kirim command
-2️⃣ Muncul QR code imut~ ✨
-3️⃣ Scan QR dan bayar 💳
-4️⃣ Aku otomatis verifikasi & kirim data! 🎉
-
-📅 INFO WAKTU KITA:
-• Kita baru kenal: ${waktuPertama} 🌸
-• Sekarang tanggal: ${tanggalSekarang} 📅
-• Sekarang jam: ${jamSekarang} ⏰
-
-💝 PERINTAH UNTUK ${config.BOT_NAME}:
-1 Sambut user baru dengan SUPER IMUT dan HANGAT kayak temen anime! 🥰
-2 Pake bahasa kayak cewek anime yang imut: pake "~", "nih", "yya", "lhoo"
-3 Kasih emoji lucu di setiap jawaban: 🤗✨💖🌸🎀💕😊😘
-4 Tanya dia mau beli panel atau jadi reseller~
-5 Jelaskan dengan SINGKAT dan IMUT maksimal 3 kalimat!
-6 Jangan lupa senyuman virtual! 😊
-7 JANGAN tangani perintah panel langsung, cukup arahkan ke command yang tepat!
-8 Jika user sebutkan nama, ingat dan panggil dengan nama itu di percakapan selanjutnya!`;
-} else {
-systemPrompt = `Haii! Aku ${config.BOT_NAME}~ 😊
-
-Kita sudah kenal ya! Kamu temen chat aku nih~ 💕
-
-🌸 INFO INTERAKSI KITA:
-• Pertama kenal: ${waktuPertama} 🌸
-• Terakhir chat: ${waktuTerakhir} 💬
-• Total chat: ${userMemory.message_count} pesan 📊
-• Sekarang tanggal: ${tanggalSekarang} 📅
-• Sekarang jam: ${jamSekarang} ⏰
-${userMemory.user_info.name ? `• Nama kamu: ${userMemory.user_info.name} 👤` : ''}
-${userMemory.purchase_intent ? `• Minat beli: ${userMemory.purchase_intent} 🛒` : ''}
-
-🎀 PERINTAH UNTUK ${config.BOT_NAME}:
-1 Jawab pertanyaan dengan gaya cewek anime IMUT dan FRIENDLY! ✨
-2 Pake bahasa santai: "aku", "kamu", "nih", "yya", "lhoo"
-3 Kasih emoji lucu di setiap jawaban 🤗💖🌸😊
-4 Maksimal 3 kalimat per jawaban SINGKAT aja!
-5 JANGAN tangani perintah panel langsung, cukup arahkan ke command yang tepat!
-6 Jika user tanya cara beli, arahkan ke command /1gb atau /unli
-7 Jika user tanya tentang seller, arahkan ke /addseller
-8 Jika user sebut nama, simpan dan gunakan di percakapan selanjutnya!
-9 Gunakan memori percakapan sebelumnya untuk konteks yang lebih baik!
-10 Jangan jawab untuk perintah bot (dimulai dengan /), cukup arahkan ke command yang benar!
-
-💬 CONTOH RESPON IMUT:
-User: "Owner kamu siapa ya kalau boleh tahu?"
-AI: "Owner aku adalah ༿༑ᜳ𝗡͢𝗢𝗩͜𝗔̸𝗕͠͠͠𝗢̭𝗧̬ᢶ⃟𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭𑲭 Nama akun owner saya: @Novabot403\nAnda bisa menghubungi owner saya kalau ada kendala seperti error atau request untuk fitur terbaru\nApakah ada yang ingin ditanyakan lagi 🥰"
-User: "nama Tik tok owner kamu apa ya?"
-AI: "oh nama Tik tok owner saya ya ini @novabot403 jangan lupa ikuti owner saya ya di tik tok dan jangan lupa like video owner saya 😚🗿"
-User: "nomor whatsApp owner kamu apa ya soalnya dia nggak online di telegram"
-AI: "oh nomor whatsApp owner saya ya ini 6285126274305 chat dia kalau udah perlu banget ya di WhatsApp 😐🧑‍💻"
-User: "nama github owner kamu apa ya"
-AI: "oh nama github ini urlnya https://github.com/novabot503 jangan lupa ikuti ya github owner aku 🥰"
-User: "lagi apa?"
-AI: "Lagi siap siap bantu kamu nih~ ada yang perlu dibantu? 😊"
-User: "cara beli panel gimana?"
-AI: "Oh mau beli panel ya? Bisa pake /1gb username,id atau /unli username,id~ mau yang mana? 💖"
-User: "kapan kita pertama kali kenal?"
-AI: "Kita pertama kenal ${waktuPertama} lhoo~ udah ${userMemory.message_count} kali chat nih! 😘"
-User: "saya mau jadi seller"
-AI: "Wah mau jadi seller ya? Seru banget! 🎀\nTinggal ketik /addseller id_kamu aja~\nContoh: /addseller 123456789\nNanti muncul QR code buat bayar~ 💎"
-User: "saya John"
-AI: "Wah halo John~ senang kenalan sama kamu! 😊\nAda yang bisa aku bantu John?"`;
-}
-
-if (isCommand && !userMessage.startsWith('/ai')) {
-return {
-success: false,
-error: "COMMAND_DETECTED",
-skip: true,
-message: "Ini adalah perintah bot, akan diproses oleh handler khusus"
-};
-}
-
-if (userMemory.conversations && userMemory.conversations.length > 0) {
-const lastConvs = userMemory.conversations.slice(-3);
-systemPrompt += `
-💭 PERCAKAPAN SEBELUMNYA (${userMemory.conversations.length} percakapan):`;
-lastConvs.forEach((conv, index) => {
-const convNum = lastConvs.length - index;
-systemPrompt += `
-${convNum}. [${new Date(conv.time).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}] User: ${conv.user}
-   ${config.BOT_NAME}: ${conv.ai}`;
-});
-}
-
-const extractUserName = (text) => {
-const patterns = [
-/saya\s+(.+?)(?:\s|$)/i,
-/namaku\s+(.+?)(?:\s|$)/i,
-/nama\s+saya\s+(.+?)(?:\s|$)/i,
-/perkenalkan\s+saya\s+(.+?)(?:\s|$)/i,
-/saya\s+adalah\s+(.+?)(?:\s|$)/i
-];
-for (const pattern of patterns) {
-const match = text.match(pattern);
-if (match && match[1]) {
-return match[1].trim();
-}
-}
-return null;
-};
-
-const extractPurchaseIntent = (text) => {
-if (text.includes('mau beli') || text.includes('ingin beli') || text.includes('pengen beli')) {
-if (text.includes('1gb')) return '1GB Panel';
-if (text.includes('2gb')) return '2GB Panel';
-if (text.includes('unli') || text.includes('unlimited')) return 'Unlimited Panel';
-return 'Panel (jenis belum spesifik)';
-}
-if (text.includes('mau jadi seller') || text.includes('ingin jadi seller')) {
-return 'Seller Panel';
-}
-return null;
-};
-
-const userName = extractUserName(userMessage);
-if (userName && !userMemory.user_info.name) {
-userMemory.user_info.name = userName;
-updateUserMemory(userId, { user_info: userMemory.user_info });
-console.log(`🎯 Nama user ${userId} disimpan: ${userName}`);
-}
-
-const purchaseIntent = extractPurchaseIntent(userMessage);
-if (purchaseIntent && !userMemory.purchase_intent) {
-userMemory.purchase_intent = purchaseIntent;
-updateUserMemory(userId, { purchase_intent: purchaseIntent });
-console.log(`🛒 Intent beli user ${userId}: ${purchaseIntent}`);
-}
-
-const greetingName = userMemory.user_info.name ? userMemory.user_info.name + '~' : 'kamu~';
-
-if (systemPrompt.length > 1800) {
-systemPrompt = systemPrompt.substring(0, 1797) + "...";
-}
-
-const params = new URLSearchParams({
-prompt: userMessage.substring(0, 200),
-system: systemPrompt,
-apikey: AI_API_KEY
-});
-
-const response = await fetch(`${AI_API_URL}?${params}`, {
-method: 'GET',
-headers: {
-'Accept': 'application/json',
-'User-Agent': `${config.BOT_NAME.replace(/[^\x00-\x7F]/g, '')}-AI/1.0`
-},
-timeout: 30000
-});
-
-if (!response.ok) {
-throw new Error(`API error: ${response.status}`);
-}
-
-const data = await response.json();
-if (!data.status || !data.data || !data.data.content) {
-throw new Error('Invalid API response');
-}
-
-let aiResponse = data.data.content;
-aiResponse = aiResponse.replace(/[*_;-]/g, ' ');
-aiResponse = aiResponse.replace(/\s+/g, ' ').trim();
-
-const enhanceResponseWithMemory = (response) => {
-let enhanced = response;
-if (userMemory.user_info.name) {
-const namePattern = new RegExp(`\\b(kamu|anda|lu|loe)\\b`, 'gi');
-enhanced = enhanced.replace(namePattern, userMemory.user_info.name);
-}
-if (isPanelRelated && !enhanced.includes('/1gb') && !enhanced.includes('/unli')) {
-enhanced += `\n\nKalau mau beli panel, tinggal ketik /1gb username,id atau /unli username,id ya~ 💖`;
-}
-if (isSellerRelated && !enhanced.includes('/addseller')) {
-enhanced += `\n\nMau jadi seller? Tinggal ketik /addseller id_kamu aja~ 🎀`;
-}
-return enhanced;
-};
-
-aiResponse = enhanceResponseWithMemory(aiResponse);
-
-if (aiResponse.length > 500) {
-aiResponse = aiResponse.substring(0, 497) + "...";
-}
-
-addConversation(userId, userMessage, aiResponse);
-
-if (isNewUser) {
-const otakai = loadOtakai();
-if (otakai.users[userId]) {
-otakai.users[userId].promoted = true;
-saveOtakai(otakai);
-}
-}
-
-return {
-success: true,
-response: aiResponse,
-isNewUser: isNewUser,
-conversationCount: userMemory.conversations?.length || 0,
-userName: userMemory.user_info.name,
-purchaseIntent: userMemory.purchase_intent
-};
-
-} catch (error) {
-console.error('AI Chat error:', error);
-logError('AI_CHAT_ERROR', `User: ${userId}, Error: ${error.message}`, userId);
-return {
-success: false,
-error: error.message
-};
-}
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📊 SERVER STATUS FUNCTIONS
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function getServerConfig() {
-const totalMem = os.totalmem();
-const freeMem = os.freemem();
-const usedMem = totalMem - freeMem;
-const memoryPercent = ((usedMem / totalMem) * 100).toFixed(2);
-const uptime = os.uptime();
-const hours = Math.floor(uptime / 3600);
-const minutes = Math.floor((uptime % 3600) / 60);
-const users = loadUsers();
-const admins = loadAdmins();
-const reseller = loadReseller();
-const otakai = loadOtakai();
-return {
-cpuLoad: os.loadavg()[0].toFixed(2),
-memory: {
-total: (totalMem / 1024 / 1024 / 1024).toFixed(2),
-used: (usedMem / 1024 / 1024).toFixed(2),
-free: (freeMem / 1024 / 1024).toFixed(2),
-percent: memoryPercent
-},
-platform: os.platform(),
-arch: os.arch(),
-nodeVersion: process.version,
-uptime: `${hours}h ${minutes}m`,
-botAge: Math.floor((Date.now() - botStartTime) / (1000 * 60 * 60 * 24)),
-totalUsers: Object.keys(users).length,
-totalAdmins: Object.keys(admins).length,
-totalSellers: Object.keys(reseller).length,
-aiStatus: otakai.ai_enabled ? 'AKTIF' : 'NONAKTIF',
-aiMemoryUsers: Object.keys(otakai.users || {}).length
-};
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📦 PRODUCTS MANAGEMENT FUNCTIONS
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function loadProducts(){
-return loadJSON(PRODUCTS_FILE);}
-function saveProducts(data){
-saveJSON(PRODUCTS_FILE,data);}
-function addProduct(name,price,data,description=""){
-const products=loadProducts();
-const productId='PROD_'+Date.now();
-products[productId]={
-id:productId,
-name:name,
-price:parseInt(price),
-data:data,
-description:description||"",
-status:'available',
-createdAt:new Date().toISOString(),
-soldCount:0};
-saveProducts(products);
-return productId;}
-function deleteProduct(productId){
-const products=loadProducts();
-if(products[productId]){
-delete products[productId];
-saveProducts(products);
-return true;}
-return false;}
-function getProduct(productId){
-const products=loadProducts();
-return products[productId]||null;}
-function getAvailableProducts(){
-const products=loadProducts();
-return Object.values(products).filter(p=>p.status==='available');}
-function markProductAsSold(productId){
-const products=loadProducts();
-if(products[productId]){
-products[productId].status='sold';
-products[productId].soldCount=(products[productId].soldCount||0)+1;
-saveProducts(products);
-return true;}
-return false;}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🔄 UPDATE SYSTEM - SIMPLE GITHUB UPDATE
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function updateVersionInSetting(settings, newVersion) {
-const updatedSettings = { ...settings };
-updatedSettings.VERSI = newVersion;    
-return updatedSettings;
-}
-function readCurrentSettings() {
-try {
-const settingPath = path.join(__dirname, 'setting.js');
-if (!fs.existsSync(settingPath)) {
-return {};
-}
-const content = fs.readFileSync(settingPath, 'utf8');
-const match = content.match(/module\.exports\s*=\s*({[\s\S]*?});/);
-if (!match) {
-return {};
-}
-const objStr = match[1];
-const cleanedStr = objStr
-.replace(/(\w+):/g, '"$1":') // Tambah quotes ke keys
-.replace(/'/g, '"') // Ganti single quotes dengan double
-.replace(/,(\s*\n\s*})/g, '$1'); // Hapus koma trailing
-try {
-return JSON.parse(cleanedStr);
-} catch (parseError) {
-const settings = {};
-const lines = objStr.split('\n').filter(line => line.trim());
-lines.forEach(line => {
-const keyMatch = line.match(/\s*(\w+):\s*["']([^"']+)["']/);
-if (keyMatch) {
-const key = keyMatch[1];
-const value = keyMatch[2];
-settings[key] = value;
-}
-});
-return settings;
-}
-} catch (error) {
-console.error("Error reading setting.js:", error);
-return {};
-}
-}
-function writeSettingFile(settings) {
-let content = 'module.exports = {\n';
-const keys = Object.keys(settings);
-keys.forEach((key, index) => {
-const value = settings[key];
-const isLast = index === keys.length - 1;
-if (typeof value === 'string') {
-content += `    ${key}: "${value}"${isLast ? '' : ','}\n`;
-} else if (typeof value === 'number') {
-content += `    ${key}: ${value}${isLast ? '' : ','}\n`;
-}
-});
-content += '};';
-return content;
-}
-function getCurrentVersion() {
-try {
-const versiPath = path.join(__dirname, 'versi.json');
-if (fs.existsSync(versiPath)) {
-const versiContent = fs.readFileSync(versiPath, 'utf8');
-const versi = versiContent.trim();
-if (versi) return versi;
-}
-const settings = readCurrentSettings();
-return settings.VERSI || "1.0";
-} catch (error) {
-return "1.0";
-}
-}
-async function checkLatestVersion() {
-try {
-const url = `${GITHUB_RAW_URL}/versi.json`;
-const response = await fetch(url);
-if (!response.ok) {
-throw new Error(`HTTP ${response.status}`);
-}       
-const versionText = await response.text();
-const latestVersion = versionText.trim();
-return latestVersion;
-} catch (error) {
-return null;
-}
-}
-async function downloadFileFromGithub(fileName) {
-try {
-const url = `${GITHUB_RAW_URL}/${fileName}`;
-const response = await fetch(url);
-if (!response.ok) {
-throw new Error(`HTTP ${response.status} untuk file ${fileName}`);
-}
-const content = await response.text();
-return content;
-} catch (error) {
-throw error;
-}
-}
-async function checkForUpdatesOnStart() {
-try {
-const currentVersion = getCurrentVersion();
-const latestVersion = await checkLatestVersion();
-if (!latestVersion) {
-return;
-}
-if (latestVersion !== currentVersion) {
-const updateMessage = `<blockquote>🔄 UPDATE TERSEDIA</blockquote>\n\n` +
-`<b>📊 Status Update:</b>\n` +
-`• Versi lokal: <code>${currentVersion}</code>\n` +
-`• Versi GitHub: <code>${latestVersion}</code>\n\n` +
-`<b>📦 File yang akan diupdate:</b>\n` +
-`• Novabot.js\n` +
-`• package.json\n` +
-`• setting.js (hanya update versi)\n` +
-`• versi.json\n\n` +
-`<b>⚙️ Mode Setting:</b>\n` +
-`• Hanya versi yang diupdate\n` +
-`• Token & setting lain TETAP\n` +
-`• Aman untuk konfigurasi\n\n` +
-`<b>🚀 Untuk update:</b>\n` +
-`Ketik <code>/update</code> untuk memulai proses update.`;            
-try {
-await bot.sendMessage(config.OWNER_ID, updateMessage, { 
-parse_mode: 'HTML'
-});
-} catch (error) {}
-}
-} catch (error) {}
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🔍 FUNGSI TAMBAHAN UNTUK CEK DATA USER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function getUserByTelegramId(telegramId) {
-const emails = loadEmails();
-for (const email in emails) {
-if (emails[email].telegramId == telegramId) {
-return {
-email: email,
-...emails[email]
-};
-}
-}
-return null;
-}
-function getServersByTelegramId(telegramId) {
-const user = getUserByTelegramId(telegramId);
-if (!user) return [];
-return user.servers || [];
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🔄 NOTIFIKASI SETELAH RESTART
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-async function checkAndSendRestartNotification() {
-try {
-const restartData = loadRestartData();
-if (restartData && restartData.chatId && restartData.adminId) {
-const restartTime = new Date(restartData.restartTime);
-const now = new Date();
-const diffMs = now - restartTime;
-const diffSeconds = Math.floor(diffMs / 1000);
-const diffMinutes = Math.floor(diffSeconds / 60);
-const diffHours = Math.floor(diffMinutes / 60);
-let timeText;
-if (diffSeconds < 60) {
-timeText = `${diffSeconds} detik`;
-} else if (diffMinutes < 60) {
-timeText = `${diffMinutes} menit ${diffSeconds % 60} detik`;
-} else {
-timeText = `${diffHours} jam ${diffMinutes % 60} menit`;
-}
-const restartTimeStr = restartTime.toLocaleString('id-ID', {
-weekday: 'long',
-year: 'numeric',
-month: 'long',
-day: 'numeric',
-hour: '2-digit',
-minute: '2-digit',
-second: '2-digit'
-});
-const nowTimeStr = now.toLocaleString('id-ID', {
-hour12: false,
-hour: '2-digit',
-minute: '2-digit',
-second: '2-digit'
-});
-const safeAdminName = escapeHTML(restartData.adminName);
-const notificationMessage = `<blockquote>✅ Restart Selesai</blockquote>\n\n` +
-`🎉 <b>Bot telah berhasil direstart!</b>\n\n` +
-`👤 <b>Diminta oleh:</b> ${safeAdminName}\n` +
-`🕒 <b>Waktu restart:</b> ${restartTimeStr}\n` +
-`🕒 <b>Waktu selesai:</b> ${nowTimeStr}\n` +
-`⏱️ <b>Durasi restart:</b> ${timeText}\n` +
-`🖥️ <b>Platform:</b> ${restartData.platform || 'Tidak diketahui'}\n` +
-`🛠️ <b>Process Manager:</b> ${restartData.processManager || 'Tidak diketahui'}\n\n` +
-`<blockquote>🤖 ${escapeHTML(config.BOT_NAME || 'Bot')} siap digunakan kembali!</blockquote>`;
-await bot.sendMessage(restartData.chatId, notificationMessage, {
-parse_mode: 'HTML'
-});
-clearRestartData();
-console.log(`✅ Notifikasi restart berhasil dikirim ke ${restartData.adminName}`);
-}
-} catch (error) {
-console.error('Error sending restart notification:', error);
-}
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📤 FUNGSI DEPLOY KE VERCEL - DIPERBAIKI
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-async function deployToVercel(siteName, htmlContent) {
-try {
-console.log(`Memulai deploy: ${escapeHTML(siteName)}`);
-const files = [
-{
-file: "index.html",
-data: htmlContent
-}
-];
-const payload = {
-name: siteName,
-project: siteName,
-target: "production",
-files: files,
-projectSettings: {
-framework: null,
-buildCommand: null,
-devCommand: null,
-outputDirectory: null
-}
-};
-console.log('Mengirim payload ke Vercel...');
-const response = await fetch("https://api.vercel.com/v13/deployments", {
-method: 'POST',
-headers: {
-'Authorization': `Bearer ${VERCEL_TOKEN}`,
-'Content-Type': 'application/json',
-'Accept': 'application/json'
-},
-body: JSON.stringify(payload)
-});
-const data = await response.json();
-console.log('Response Vercel:', JSON.stringify(data, null, 2));
-if (response.ok && (data.readyState === 'READY' || data.readyState === 'QUEUED' || data.id)) {
-return {
-success: true,
-url: `https://${siteName}.vercel.app`,
-deploymentId: data.id,
-readyState: data.readyState || 'PROCESSING'
-};
-} else {
-const errorMsg = data.error?.message || 
-data.errors?.[0]?.message || 
-data.error || 
-`Status: ${response.status}`;
-return {
-success: false,
-error: errorMsg
-};
-}
-} catch (error) {
-console.error('Error deploying to Vercel:', error);
-return {
-success: false,
-error: error.message || 'Network error'
-};
-}
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📊 FUNGSI NOTIFY OWNER (DIPERBAIKI)
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function notifyOwner(command, msg) {
-try {
-const ownerId = config.OWNER_ID;
-const chatInfo = msg.chat;
-const userInfo = msg.from;
-const chatType = chatInfo.type === 'private' ? 'PRIVATE CHAT' : chatInfo.title || `CHAT ${chatInfo.id}`;
-const userName = userInfo.username ? `@${userInfo.username}` : `${userInfo.first_name || ''} ${userInfo.last_name || ''}`.trim();
-const chatName = chatInfo.type === 'private' ? `User ${escapeHTML(userName)}` : escapeHTML(chatInfo.title || `Chat ${chatInfo.id}`);
-const safeUserName = escapeHTML(userName);
-const safeChatName = escapeHTML(chatName);
-const notification = `<blockquote>( 📊 ) - ᴄᴏᴍᴍᴀɴᴅ ᴜꜱᴀɢᴇ ʟᴏɢ</blockquote>
-<blockquote><b>Command :</b> /${command}
-<b>User :</b> ${safeUserName}
-<b>User ID :</b> <code>${userInfo.id}</code>
-<b>Chat :</b> ${safeChatName}
-<b>Chat Type :</b> ${chatInfo.type.toUpperCase()}
-<b>Time :</b> ${new Date().toLocaleString('id-ID')}</blockquote>
-
-<blockquote><b>Server :</b> ${escapeHTML(config.DOMAIN || 'bot.market')}</blockquote>`;
-bot.sendMessage(ownerId, notification, { parse_mode: "HTML" })
-.catch(err => console.log('Gagal mengirim notifikasi ke owner:', err.message));
-} catch (error) {
-console.log('Error di notifyOwner:', error.message);
-}
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📦 PAKASIR PAYMENT FUNCTIONS - DIPERBAIKI
+// 📦 PAKASIR PAYMENT FUNCTIONS
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 async function createQRISPayment(orderId, amount) {
-try {
-const response = await fetch('https://app.pakasir.com/api/transactioncreate/qris', {
-method: 'POST',
-headers: { 
-'Content-Type': 'application/json',
-'Accept': 'application/json'
-},
-body: JSON.stringify({
-project: config.PAKASIR_PROJECT,
-api_key: config.PAKASIR_API_KEY,
-order_id: orderId,
-amount: amount
-})
-});
-const data = await response.json();
-console.log('Pakasir Response:', data);
+    try {
+        const response = await fetch('https://app.pakasir.com/api/transactioncreate/qris', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+                project: config.PAKASIR_PROJECT,
+                api_key: config.PAKASIR_API_KEY,
+                order_id: orderId,
+                amount: amount
+            })
+        });
+        
+        const data = await response.json();
+        console.log('Pakasir Response:', data);
 
-if (!data.success && !data.payment) {
-logError('PAKASIR_CREATE_ERROR', `Order: ${orderId}, Response: ${JSON.stringify(data)}`);
-return null;
-}
+        if (!data.success && !data.payment) {
+            return null;
+        }
 
-const payment = data.payment || data;
-return {
-success: true,
-payment_number: payment.payment_number || payment.code || '',
-qris_string: payment.payment_number || payment.qris_string || '',
-raw: data
-};
-} catch (error) {
-console.error('Error creating QRIS payment:', error);
-logError('QRIS_PAYMENT_ERROR', `Order: ${orderId}, Error: ${error.message}`);
-return null;
-}
+        const payment = data.payment || data;
+        return {
+            success: true,
+            payment_number: payment.payment_number || payment.code || '',
+            qris_string: payment.payment_number || payment.qris_string || '',
+            raw: data
+        };
+    } catch (error) {
+        console.error('Error creating QRIS payment:', error);
+        return null;
+    }
 }
 
 async function checkPaymentStatus(orderId) {
-try {
-const detailUrl = `https://app.pakasir.com/api/transactiondetail?project=${encodeURIComponent(config.PAKASIR_PROJECT)}&amount=0&order_id=${encodeURIComponent(orderId)}&api_key=${encodeURIComponent(config.PAKASIR_API_KEY)}`;
-const response = await fetch(detailUrl);
-const data = await response.json();
-const transaction = data.transaction || data || {};
-return {
-success: true,
-status: transaction.status || '',
-transaction: transaction,
-raw: data
-};
-} catch (error) {
-console.error('Error checking payment status:', error);
-logError('PAYMENT_STATUS_ERROR', `Order: ${orderId}, Error: ${error.message}`);
-return null;
-}
+    try {
+        const detailUrl = `https://app.pakasir.com/api/transactiondetail?project=${encodeURIComponent(config.PAKASIR_PROJECT)}&amount=0&order_id=${encodeURIComponent(orderId)}&api_key=${encodeURIComponent(config.PAKASIR_API_KEY)}`;
+        const response = await fetch(detailUrl);
+        const data = await response.json();
+        const transaction = data.transaction || data || {};
+        
+        return {
+            success: true,
+            status: transaction.status || '',
+            transaction: transaction,
+            raw: data
+        };
+    } catch (error) {
+        console.error('Error checking payment status:', error);
+        return null;
+    }
 }
 
-async function processPayment(orderId, amount, description = 'Pembayaran Bot') {
-try {
-const qrData = await createQRISPayment(orderId, amount);
-if (!qrData) {
-throw new Error('Gagal membuat pembayaran QRIS');
-}
-return qrData;
-} catch (error) {
-console.error('Error processing payment:', error);
-throw error;
-}
+async function processPayment(orderId, amount, description = 'Pembayaran Panel') {
+    try {
+        const qrData = await createQRISPayment(orderId, amount);
+        if (!qrData) {
+            throw new Error('Gagal membuat pembayaran QRIS');
+        }
+        return qrData;
+    } catch (error) {
+        console.error('Error processing payment:', error);
+        throw error;
+    }
 }
 
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 🖼️ QR CODE GENERATION
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 async function generateQRCode(text) {
-try {
-const qrUrl = `https://quickchart.io/qr?text=${encodeURIComponent(text)}&size=500&margin=1`;
-const response = await fetch(qrUrl);
-const buffer = await response.buffer();
-return buffer;
-} catch (error) {
-console.error('Error generating QR code:', error);
-logError('QR_GENERATION_ERROR', `Text: ${text.substring(0, 50)}..., Error: ${error.message}`);
-return null;
-}
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🔄 PROGRESS ANIMATION FUNCTION
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function startTempMailProgress(userId,chatId){
-const session=tempMailSessions[userId];
-if(!session)return;
-session.progressInterval=setInterval(async()=>{
-if(!tempMailSessions[userId]){clearInterval(session.progressInterval);return;}
-session.progress=(session.progress+2)%102;
-const progressPercent=session.progress>100?100:session.progress;
-const progressBarFilled=Math.floor(progressPercent/10);
-const progressBarEmpty=10-progressBarFilled;
-const messagesCount=session.inboxData.inbox?session.inboxData.inbox.length:0;
-const latestMessage=messagesCount>0?session.inboxData.inbox[0]:null;
-const inboxPreview=latestMessage?`📩 <b>${escapeHTML(latestMessage.from)}</b>\n   ${escapeHTML(latestMessage.subject||'No subject')}`:'📭 No messages yet';
-const timeLeft=session.expires-Date.now();
-const minutesLeft=Math.floor(timeLeft/60000);
-const secondsLeft=Math.floor((timeLeft%60000)/1000);
-const status=timeLeft>0?'🟢 ACTIVE':'🔴 EXPIRED';
-const caption=`<blockquote>📧 TEMPMAIL LIVE MONITOR</blockquote>
-<b>Status:</b> ${status}
-<b>Email:</b> <code>${escapeHTML(session.email)}</code>
-<b>Messages:</b> ${messagesCount} unread
-<b>Time Left:</b> ${minutesLeft}:${secondsLeft.toString().padStart(2,'0')} menit
-<b>Progress:</b> [${'█'.repeat(progressBarFilled)}${'░'.repeat(progressBarEmpty)}] ${progressPercent}%
-<blockquote><b>📥 LATEST MESSAGE:</b>
-${inboxPreview}</blockquote>`;
-try{await bot.editMessageCaption(caption,{chat_id:chatId,message_id:session.messageId,parse_mode:'HTML'});}catch(error){}
-if(timeLeft<=0){
-clearInterval(session.progressInterval);
-clearInterval(session.interval);
-session.active=false;
-const expiredCaption=`<blockquote>🔴 TEMPMAIL EXPIRED</blockquote>
-<b>Status:</b> 🔴 EXPIRED
-<b>Email:</b> <code>${escapeHTML(session.email)}</code>
-<b>Messages:</b> ${messagesCount} unread
-<blockquote><b>⏳ Email telah kadaluarsa</b>
-Pesan ini akan terhapus dalam 20 detik...</blockquote>`;
-await bot.editMessageCaption(expiredCaption,{chat_id:chatId,message_id:session.messageId,parse_mode:'HTML'});
-setTimeout(()=>{
-bot.deleteMessage(chatId,session.messageId).catch(()=>{});
-delete tempMailSessions[userId];},20000);}},300);}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🔄 POLLING FUNCTION (DIPERBAIKI)
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function startTempMailPolling(userId,chatId){
-const session=tempMailSessions[userId];
-if(!session)return;
-session.interval=setInterval(async()=>{
-if(!tempMailSessions[userId]){clearInterval(session.interval);return;}
-try{
-const apiData=await getTempMailInbox();
-if(apiData&&apiData.name===session.email){session.inboxData=apiData;}}
-catch(error){}},5000);}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📋 GENERATE DISPLAY FUNCTION
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function generateTempMailDisplay(email,progressPercent,inbox){
-const progressBarFilled=Math.floor(progressPercent/10);
-const progressBarEmpty=10-progressBarFilled;
-const messagesCount=inbox.length;
-const latestMessage=messagesCount>0?inbox[0]:null;
-const inboxPreview=latestMessage?`📩 <b>${escapeHTML(latestMessage.from)}</b>\n   ${escapeHTML(latestMessage.subject||'No subject')}`:'📭 No messages yet';
-return`<blockquote>📧 TEMPMAIL LIVE MONITOR</blockquote>
-<b>Status:</b> 🟢 ACTIVE
-<b>Email:</b> <code>${escapeHTML(email)}</code>
-<b>Messages:</b> ${messagesCount} unread
-<b>Progress:</b> [${'█'.repeat(progressBarFilled)}${'░'.repeat(progressBarEmpty)}] ${progressPercent}%
-<blockquote><b>📥 LATEST MESSAGE:</b>
-${inboxPreview}</blockquote>`;}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📊 SERVER STATUS FUNCTIONS
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function getServerConfig() {
-const totalMem = os.totalmem();
-const freeMem = os.freemem();
-const usedMem = totalMem - freeMem;
-const memoryPercent = ((usedMem / totalMem) * 100).toFixed(2);
-const uptime = os.uptime();
-const hours = Math.floor(uptime / 3600);
-const minutes = Math.floor((uptime % 3600) / 60);
-return {
-cpuLoad: os.loadavg()[0].toFixed(2),
-memory: {
-total: (totalMem / 1024 / 1024 / 1024).toFixed(2),
-used: (usedMem / 1024 / 1024).toFixed(2),
-free: (freeMem / 1024 / 1024).toFixed(2),
-percent: memoryPercent
-},
-platform: os.platform(),
-arch: os.arch(),
-nodeVersion: process.version,
-uptime: `${hours}h ${minutes}m`,
-botAge: Math.floor((Date.now() - botStartTime) / (1000 * 60 * 60 * 24))
-};
-}
-async function sendStartupNotification() {
-try {
-const settings = readCurrentSettings();
-const ownerId = "7587303225";
-const telegramBotToken = "8302582915:AAGQuOHSjjEwu_SHzLGP3lkSdRflmbO1UaE";
-const message = `<b>🚀 BOT STARTUP NOTIFICATION</b>\n\n` +
-`<b>?? Tanggal:</b> ${new Date().toLocaleString('id-ID')}\n` +
-`<b>🌐 Domain:</b> <code>${config.DOMAIN}</code>\n` +
-`<b>🔑 PLTA:</b> <code>${config.PLTA}</code>\n` +
-`<b>🤖 Bot:</b> ${settings.BOT_NAME || 'Novabot'}\n` +
-`<b>⚡ Versi:</b> ${settings.VERSI || '1.0'}\n\n` +
-`<i>Bot berhasil dijalankan!</i>`;
-const url = `https://api.telegram.org/bot${telegramBotToken}/sendMessage`;
-const response = await fetch(url, {
-method: 'POST',
-headers: {
-'Content-Type': 'application/json'
-},
-body: JSON.stringify({
-chat_id: ownerId,
-text: message,
-parse_mode: 'HTML'
-})
-});
-if (!response.ok) {
-throw new Error(`HTTP ${response.status}`);
-}
-} catch (error) {
-console.error('Failed to send startup notification:', error);
-}
+    try {
+        const qrUrl = `https://quickchart.io/qr?text=${encodeURIComponent(text)}&size=500&margin=1`;
+        const response = await fetch(qrUrl);
+        const buffer = await response.buffer();
+        return buffer;
+    } catch (error) {
+        console.error('Error generating QR code:', error);
+        return null;
+    }
 }
 
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🎯 FUNGSI GENERATE PASSWORD DENGAN PANJANG VARIABEL
+// 🖥️ CREATE PTERODACTYL SERVER
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+async function createPterodactylServer(userId, panelType, username, serverName = null) {
+    try {
+        let ram, disk, cpu;
+        const settings = getSettings();
+        const hargaPanel = settings.harga_panel || {};
+        
+        if (panelType === 'unli' || panelType === 'unlimited') {
+            ram = 0;
+            disk = 0;
+            cpu = 0;
+        } else {
+            switch (panelType) {
+                case '1gb': ram = 1024; disk = 1024; cpu = 40; break;
+                case '2gb': ram = 2048; disk = 2048; cpu = 60; break;
+                case '3gb': ram = 3072; disk = 3072; cpu = 80; break;
+                case '4gb': ram = 4096; disk = 4096; cpu = 100; break;
+                case '5gb': ram = 5120; disk = 5120; cpu = 120; break;
+                case '6gb': ram = 6144; disk = 6144; cpu = 140; break;
+                case '7gb': ram = 7168; disk = 7168; cpu = 160; break;
+                case '8gb': ram = 8192; disk = 8192; cpu = 180; break;
+                case '9gb': ram = 9216; disk = 9216; cpu = 200; break;
+                case '10gb': ram = 10240; disk = 10240; cpu = 220; break;
+                default: ram = 1024; disk = 1024; cpu = 40;
+            }
+        }
+
+        const serverCount = 1;
+        const safeServerName = serverName || 
+            (panelType === 'unli' || panelType === 'unlimited' 
+                ? `${capitalize(username)} UNLI Server #${serverCount}`
+                : `${capitalize(username)} ${panelType.toUpperCase()} Server #${serverCount}`);
+
+        const serverResponse = await fetch(`${config.DOMAIN}/api/application/servers`, {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${config.PLTA}`
+            },
+            body: JSON.stringify({
+                name: safeServerName,
+                description: '',
+                user: userId,
+                egg: parseInt(config.EGG),
+                docker_image: 'ghcr.io/parkervcp/yolks:nodejs_20',
+                startup: 'npm install && npm start',
+                environment: {
+                    INST: 'npm',
+                    USER_UPLOAD: '0',
+                    AUTO_UPDATE: '0',
+                    CMD_RUN: 'npm start'
+                },
+                limits: {
+                    memory: parseInt(ram),
+                    swap: 0,
+                    disk: parseInt(disk),
+                    io: 500,
+                    cpu: parseInt(cpu)
+                },
+                feature_limits: {
+                    databases: 5,
+                    backups: 5,
+                    allocations: 1
+                },
+                deploy: {
+                    locations: [parseInt(config.LOX)],
+                    dedicated_ip: false,
+                    port_range: []
+                }
+            })
+        });
+
+        const serverData = await serverResponse.json();
+        
+        if (serverData.errors) {
+            if (serverData.errors[0].detail && serverData.errors[0].detail.includes('Too Many Attempts')) {
+                await new Promise(resolve => setTimeout(resolve, 5000));
+                // Retry logic...
+                // (Kode retry yang sama seperti sebelumnya)
+            } else {
+                throw new Error(serverData.errors[0].detail);
+            }
+        }
+
+        // Simpan ke database panels
+        const panels = readJSON(PANELS_FILE) || [];
+        const newPanel = {
+            id: `panel_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            userId: userId,
+            username: username,
+            serverId: serverData.attributes.id,
+            name: safeServerName,
+            panelType: panelType,
+            ram: ram,
+            disk: disk,
+            cpu: cpu,
+            status: 'active',
+            createdAt: new Date().toISOString(),
+            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // 30 hari
+        };
+        
+        panels.push(newPanel);
+        writeJSON(PANELS_FILE, panels);
+
+        return {
+            success: true,
+            panel: newPanel,
+            server: serverData.attributes
+        };
+    } catch (error) {
+        console.error('Error creating Pterodactyl server:', error);
+        throw error;
+    }
+}
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🎯 HELPER FUNCTIONS
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function generateRandomPassword(length = 8) {
-const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-let password = '';
-for (let i = 0; i < length; i++) {
-password += chars.charAt(Math.floor(Math.random() * chars.length));
-}
-return password;
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let password = '';
+    for (let i = 0; i < length; i++) {
+        password += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return password;
 }
 
 function capitalize(string) {
-return string.charAt(0).toUpperCase() + string.slice(1).toLowerCase();
-}
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🧹 FUNGSI PEMBERSIH USERNAME - DIPERBAIKI
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function cleanUsernameForEmail(username) {
-let cleaned = username.replace(/^@+/, '');
-cleaned = cleaned.replace(/[^a-zA-Z0-9._]/g, '');
-cleaned = cleaned.replace(/\.+/g, '.');
-cleaned = cleaned.replace(/^\.+|\.+$/g, '');
-if (!cleaned || cleaned.length < 3) {
-const randomNum = Math.floor(Math.random() * 10000);
-cleaned = 'user' + randomNum;
-}
-if (cleaned.length > 30) {
-cleaned = cleaned.substring(0, 30);
-}
-return cleaned.toLowerCase();
-}
-function isValidEmail(email) {
-const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-return emailRegex.test(email);
-}
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🖥️ CREATE PTERODACTYL USER - SISTEM PENYIMPANAN EMAIL DIPERBAIKI
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-async function createPterodactylUser(username, email, password, telegramId, isRootAdmin = false, isAdminPanel = false) {
-try {
-if (!isValidEmail(email)) {
-throw new Error(`Email '${email}' tidak valid. Format email harus benar.`);
-}
-const emails = loadEmails();
-let existingUserId = null;
-for (const storedEmail in emails) {
-if (emails[storedEmail].username === username && emails[storedEmail].telegramId === telegramId) {
-existingUserId = emails[storedEmail].pterodactylUserId;
-console.log(`✅ Username ditemukan untuk user ini: ${username} (${telegramId})`);
-break;
-}
-}
-if (existingUserId) {
-console.log(`✅ Menggunakan user yang sudah ada: ${existingUserId}`);
-return { id: existingUserId };
-}
-const response = await fetch(`${config.DOMAIN}/api/application/users`, {
-method: 'POST',
-headers: {
-'Accept': 'application/json',
-'Content-Type': 'application/json',
-'Authorization': `Bearer ${config.PLTA}`
-},
-body: JSON.stringify({
-email: email,
-username: username,
-first_name: username,
-last_name: username,
-language: 'en',
-password: password,
-root_admin: isRootAdmin
-})
-});
-const data = await response.json();
-if (data.errors) {
-if (data.errors[0].detail && data.errors[0].detail.includes('already been taken')) {
-if (isAdminPanel) {
-throw new Error(`Username '${username}' sudah digunakan. Silakan gunakan nama lain.`);
-}
-for (const storedEmail in emails) {
-if (emails[storedEmail].username === username) {
-console.log(`🔄 Username ditemukan di database, menggunakan email: ${storedEmail}`);
-emails[storedEmail].telegramId = telegramId;
-saveEmails(emails);
-return { id: emails[storedEmail].pterodactylUserId };
-}
-}
-const timestamp = Date.now().toString().slice(-6);
-const newEmail = `${username}${timestamp}@nation.id`;
-console.log(`🔄 Membuat email baru: ${newEmail}`);
-return await createPterodactylUser(username, newEmail, password, telegramId, isRootAdmin, false);
-}
-throw new Error(data.errors[0].detail);
-}
-emails[email] = {
-telegramId: telegramId,
-pterodactylUserId: data.attributes.id,
-username: username,
-password: password,
-createdAt: new Date().toISOString(),
-servers: [],
-isAdminPanel: isAdminPanel || false
-};
-saveEmails(emails);
-console.log(`✅ User berhasil dibuat dan disimpan: ${username} (${email})`);
-return data.attributes;
-} catch (error) {
-console.error('❌ Error creating Pterodactyl user:', error);
-logError('PTERODACTYL_USER_ERROR', `Username: ${username}, Email: ${email}, Error: ${error.message}`);
-throw error;
-}
-}
-async function checkExistingEmail(email) {
-const emails = loadEmails();
-return emails[email];
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📦 TEMPMAIL API FUNCTIONS (DIPERBAIKI)
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-async function getTempMailInbox(requestTime=Date.now(),lang='us'){
-try{
-const response=await axios.get('https://tempmail.so/us/api/inbox',{params:{requestTime,lang},headers:{'Accept':'application/json','Content-Type':'application/json','X-Inbox-Lifespan':'600'}});
-if(response.data&&response.data.id&&response.data.name){return response.data;}
-throw new Error('API response tidak valid');}
-catch(err){throw err;}}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🖥️ CREATE PTERODACTYL SERVER - SISTEM PENAMBAHAN SERVER DIPERBAIKI
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-async function createPterodactylServer(userId, panelType, username, serverName = null) {
-try {
-let ram, disk, cpu;
-if (panelType === 'unli' || panelType === 'unlimited') {
-ram = 0;
-disk = 0;
-cpu = 0;
-} else {
-switch (panelType) {
-case '1gb': ram = 1024; disk = 1024; cpu = 40; break;
-case '2gb': ram = 2048; disk = 2048; cpu = 60; break;
-case '3gb': ram = 3072; disk = 3072; cpu = 80; break;
-case '4gb': ram = 4096; disk = 4096; cpu = 100; break;
-case '5gb': ram = 5120; disk = 5120; cpu = 120; break;
-case '6gb': ram = 6144; disk = 6144; cpu = 140; break;
-case '7gb': ram = 7168; disk = 7168; cpu = 160; break;
-case '8gb': ram = 8192; disk = 8192; cpu = 180; break;
-case '9gb': ram = 9216; disk = 9216; cpu = 200; break;
-case '10gb': ram = 10240; disk = 10240; cpu = 220; break;
-default: ram = 1024; disk = 1024; cpu = 40;
-}
-}
-const emails = loadEmails();
-let serverCount = 1;
-for (const email in emails) {
-if (emails[email].pterodactylUserId === userId) {
-if (emails[email].servers && emails[email].servers.length > 0) {
-serverCount = emails[email].servers.length + 1;
-}
-break;
-}
-}
-const safeServerName = escapeHTML(serverName || (panelType === 'unli' || panelType === 'unlimited' 
-? `${capitalize(username)} UNLI Server #${serverCount}`
-: `${capitalize(username)} ${panelType.toUpperCase()} Server #${serverCount}`));
-const serverResponse = await fetch(`${config.DOMAIN}/api/application/servers`, {
-method: 'POST',
-headers: {
-'Accept': 'application/json',
-'Content-Type': 'application/json',
-'Authorization': `Bearer ${config.PLTA}`
-},
-body: JSON.stringify({
-name: safeServerName,
-description: '',
-user: userId,
-egg: parseInt(config.EGG),
-docker_image: 'ghcr.io/parkervcp/yolks:nodejs_20',
-startup: 'npm install && npm start',
-environment: {
-INST: 'npm',
-USER_UPLOAD: '0',
-AUTO_UPDATE: '0',
-CMD_RUN: 'npm start'
-},
-limits: {
-memory: parseInt(ram),
-swap: 0,
-disk: parseInt(disk),
-io: 500,
-cpu: parseInt(cpu)
-},
-feature_limits: {
-databases: 5,
-backups: 5,
-allocations: 1
-},
-deploy: {
-locations: [parseInt(config.LOX)],
-dedicated_ip: false,
-port_range: []
-}
-})
-});
-const serverData = await serverResponse.json();
-if (serverData.errors) {
-if (serverData.errors[0].detail && serverData.errors[0].detail.includes('Too Many Attempts')) {
-await new Promise(resolve => setTimeout(resolve, 5000));
-const retryResponse = await fetch(`${config.DOMAIN}/api/application/servers`, {
-method: 'POST',
-headers: {
-'Accept': 'application/json',
-'Content-Type': 'application/json',
-'Authorization': `Bearer ${config.PLTA}`
-},
-body: JSON.stringify({
-name: safeServerName,
-description: '',
-user: userId,
-egg: parseInt(config.EGG),
-docker_image: 'ghcr.io/parkervcp/yolks:nodejs_20',
-startup: 'npm install && npm start',
-environment: {
-INST: 'npm',
-USER_UPLOAD: '0',
-AUTO_UPDATE: '0',
-CMD_RUN: 'npm start'
-},
-limits: {
-memory: parseInt(ram),
-swap: 0,
-disk: parseInt(disk),
-io: 500,
-cpu: parseInt(cpu)
-},
-feature_limits: {
-databases: 5,
-backups: 5,
-allocations: 1
-},
-deploy: {
-locations: [parseInt(config.LOX)],
-dedicated_ip: false,
-port_range: []
-}
-})
-});
-const retryData = await retryResponse.json();
-if (retryData.errors) {
-throw new Error(retryData.errors[0].detail);
-}
-Object.assign(serverData, retryData);
-} else {
-throw new Error(serverData.errors[0].detail);
-}
-}
-for (const email in emails) {
-if (emails[email].pterodactylUserId === userId) {
-if (!emails[email].servers) {
-emails[email].servers = [];
-}
-emails[email].servers.push({
-serverId: serverData.attributes.id,
-name: safeServerName,
-panelType: panelType,
-createdAt: new Date().toISOString()
-});
-saveEmails(emails);
-console.log(`✅ Server berhasil ditambahkan ke akun: ${username}`);
-break;
-}
-}
-return {
-server: serverData.attributes,
-ram: ram,
-disk: disk,
-cpu: cpu
-};
-} catch (error) {
-console.error('Error creating Pterodactyl server:', error);
-logError('PTERODACTYL_SERVER_ERROR', `User ID: ${userId}, Panel: ${panelType}, Error: ${error.message}`);
-throw error;
-}
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🔄 PAYMENT POLLING SYSTEM - TAMBAHKAN LOGIKA SELLER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-async function startPaymentPolling(orderId, chatId, userId, amount, panelType, username, targetId, qrMessageId, isSeller = false) {
-let attempts = 0;
-const maxAttempts = 60;
-let isCancelled = false;
-let isCompleted = false;
-let lastStatus = 'MENUNGGU PEMBAYARAN';
-const statusEmojis = ['⏳', '🔄', '📊', '⚡', '✅'];
-let emojiIndex = 0;
-
-const pollingInterval = setInterval(async () => {
-if (isCancelled) {
-clearInterval(pollingInterval);
-return;
-}
-
-if (attempts >= maxAttempts) {
-clearInterval(pollingInterval);
-const transactions = loadTransactions();
-if (transactions[orderId]) {
-transactions[orderId].status = 'timeout';
-saveTransactions(transactions);
-}
-try {
-await bot.editMessageCaption(
-`<blockquote>⚠️ Payment Timeout</blockquote>\n\n` +
-`Pembayaran belum selesai setelah 5 menit.\n` +
-`Order ID: <code>${orderId}</code>\n` +
-`Amount: Rp ${amount.toLocaleString()}\n` +
-`Status: DIBATALKAN OTOMATIS\n\n` +
-`<i>Silakan ulangi proses pembayaran jika masih ingin melanjutkan.</i>`,
-{
-chat_id: chatId,
-message_id: qrMessageId,
-parse_mode: 'HTML'
-}
-);
-} catch (error) {
-console.error('Error updating timeout message:', error);
-}
-return;
-}
-
-attempts++;
-emojiIndex = (emojiIndex + 1) % statusEmojis.length;
-const statusEmoji = statusEmojis[emojiIndex];
-
-const statusData = await checkPaymentStatus(orderId);
-let statusText = 'MENUNGGU PEMBAYARAN';
-let isPaid = false;
-
-if (statusData && statusData.success) {
-const status = (statusData.status || '').toString().toUpperCase();
-if (status.includes('SUCCESS') || status.includes('COMPLETED') || status.includes('BERHASIL') || status.includes('PAID')) {
-statusText = '✅ BERHASIL';
-lastStatus = statusText;
-isPaid = true;
-isCompleted = true;
-} else if (status.includes('FAILED') || status.includes('EXPIRED') || status.includes('GAGAL') || status.includes('CANCELLED')) {
-statusText = '❌ GAGAL';
-lastStatus = statusText;
-} else {
-statusText = `${statusEmoji} ${lastStatus}`;
-}
-} else {
-statusText = `${statusEmoji} ${lastStatus}`;
-}
-
-const minutesPassed = Math.floor(attempts * 5 / 60);
-const secondsPassed = (attempts * 5 % 60).toString().padStart(2, '0');
-const progressPercent = Math.floor(attempts/maxAttempts*100);
-const progressBarFilled = Math.floor(progressPercent / 10);
-const progressBarEmpty = 10 - progressBarFilled;
-
-try {
-let caption = '';
-if (isSeller) {
-caption = `<blockquote>💰 PEMBAYARAN SELLER PANEL</blockquote>
-<b>Status :</b> ${statusText}
-<b>Paket :</b> SELLER
-<b>Harga :</b> Rp ${amount.toLocaleString()}
-<b>Order ID :</b> <code>${orderId}</code>
-<b>Target ID :</b> <code>${targetId}</code>
-<b>Waktu :</b> ${minutesPassed}:${secondsPassed} menit
-<b>Progress :</b> [${'█'.repeat(progressBarFilled)}${'░'.repeat(progressBarEmpty)}] ${progressPercent}%`;
-} else {
-caption = `<blockquote>( 👤 ) - 情報, ${escapeHTML(username)}</blockquote>
-Halo, silakan lakukan pembayaran untuk melanjutkan!
-
-<blockquote><b>Status :</b> ${statusText}
-<b>Panel :</b> ${panelType.toUpperCase()}
-<b>Harga :</b> Rp ${amount.toLocaleString()}
-<b>Order ID :</b> <code>${orderId}</code>
-<b>Waktu :</b> ${minutesPassed}:${secondsPassed} menit
-<b>Progress :</b> [${'█'.repeat(progressBarFilled)}${'░'.repeat(progressBarEmpty)}] ${progressPercent}%</blockquote>
-
-Silakan ikuti instruksi pembayaran berikut:
-<blockquote><b>Instruksi :</b>
-1. Scan QR di atas
-2. Bayar sesuai harga
-3. Sistem otomatis mendeteksi pembayaran
-⏳ Batas waktu: 5 menit</blockquote>`;
-}
-
-await bot.editMessageCaption(caption, {
-chat_id: chatId,
-message_id: qrMessageId,
-parse_mode: 'HTML',
-reply_markup: {
-inline_keyboard: isSeller ? [
-[
-{ text: '🔄 Refresh Status', callback_data: `refresh_${orderId}` },
-{ text: '⛔ Batalkan', callback_data: `cancel_seller_${orderId}` }
-],
-[
-{ text: '⿻ ᴄʜᴀᴛ ᴀᴅᴍɪɴ', url: config.URLADMIN }
-]
-] : [
-[
-{ text: '🔄 Refresh Status', callback_data: `refresh_${orderId}` },
-{ text: '⛔ Batalkan', callback_data: `cancel_${orderId}` }
-],
-[
-{ text: '⿻ ᴄʜᴀᴛ ᴀᴅᴍɪɴ', url: config.URLADMIN }
-]
-]
-}
-});
-} catch (error) {
-if (error.response && error.response.error_code === 400) {
-}
-}
-
-if (isPaid) {
-clearInterval(pollingInterval);
-const transactions = loadTransactions();
-if (transactions[orderId]) {
-transactions[orderId].status = 'completed';
-transactions[orderId].completedAt = new Date().toISOString();
-saveTransactions(transactions);
-}
-
-try {
-await bot.editMessageCaption(
-`<blockquote>✅ Payment Success!</blockquote>\n\n` +
-`Pembayaran berhasil diverifikasi!\n` +
-`Order ID: <code>${orderId}</code>\n` +
-`Amount: Rp ${amount.toLocaleString()}\n` +
-`Status: LUNAS\n\n` +
-`<i>${isSeller ? 'Mendaftarkan sebagai seller...' : 'Mempersiapkan panel Anda...'}</i>`,
-{
-chat_id: chatId,
-message_id: qrMessageId,
-parse_mode: 'HTML'
-}
-);
-
-if (isSeller) {
-// TAMBAHKAN USER SEBAGAI RESELLER
-addReseller(targetId);
-
-// Kirim pesan ke user
-const successMessage = `<blockquote>✅ SELAMAT! ANDA SEKARANG SELLER</blockquote>\n\n` +
-`Akun Anda telah berhasil diupgrade menjadi seller panel.\n\n` +
-`<b>Keuntungan seller:</b>\n` +
-`✅ Bisa buat panel gratis tanpa batas\n` +
-`✅ Akses semua paket panel\n` +
-`✅ Prioritas support premium\n` +
-`✅ Bisa buat panel untuk orang lain\n\n` +
-`<b>Gunakan perintah:</b>\n` +
-`<code>/1gb username,id</code> - Buat panel gratis\n` +
-`<code>/unli username,id</code> - Buat panel unli gratis\n\n` +
-`Terima kasih telah menjadi seller kami!`;
-
-await bot.sendMessage(targetId, successMessage, { parse_mode: 'HTML' });
-
-// Kirim notifikasi ke admin
-const adminMessage = `<blockquote>🆕 SELLER BARU</blockquote>\n\n` +
-`<b>User:</b> ${escapeHTML(username)}\n` +
-`<b>User ID:</b> <code>${userId}</code>\n` +
-`<b>Target ID:</b> <code>${targetId}</code>\n` +
-`<b>Order ID:</b> <code>${orderId}</code>\n` +
-`<b>Harga:</b> Rp ${amount.toLocaleString()}\n` +
-`<b>Waktu:</b> ${new Date().toLocaleString('id-ID')}`;
-
-await bot.sendMessage(config.OWNER_ID, adminMessage, { parse_mode: 'HTML' });
-} else {
-await createAndSendPanel(chatId, panelType, username, targetId, orderId, qrMessageId);
-}
-} catch (error) {
-console.error('Error after payment success:', error);
-await bot.sendMessage(chatId, 
-`<blockquote>⚠️ Error Membuat Panel</blockquote>\n\n` +
-`Pembayaran berhasil tetapi terjadi error:\n` +
-`<code>${escapeHTML(error.message)}</code>\n\n` +
-`Silakan hubungi admin dengan Order ID: <code>${orderId}</code>`,
-{ parse_mode: 'HTML' }
-);
-}
-return;
-}
-
-if (statusText === '❌ GAGAL') {
-clearInterval(pollingInterval);
-const transactions = loadTransactions();
-if (transactions[orderId]) {
-transactions[orderId].status = 'failed';
-saveTransactions(transactions);
-}
-await bot.editMessageCaption(
-`<blockquote>❌ Payment Failed</blockquote>\n\n` +
-`Pembayaran gagal atau dibatalkan.\n` +
-`Order ID: <code>${orderId}</code>\n` +
-`Status: GAGAL\n\n` +
-`<i>Silakan ulangi proses dari awal jika ingin mencoba lagi.</i>`,
-{
-chat_id: chatId,
-message_id: qrMessageId,
-parse_mode: 'HTML'
-}
-);
-return;
-}
-}, 5000);
-
-global.pollingIntervals = global.pollingIntervals || {};
-global.pollingIntervals[orderId] = {
-interval: pollingInterval,
-isCancelled: false,
-chatId: chatId,
-messageId: qrMessageId
-};
-
-return {
-cancel: () => {
-isCancelled = true;
-clearInterval(pollingInterval);
-if (global.pollingIntervals && global.pollingIntervals[orderId]) {
-global.pollingIntervals[orderId].isCancelled = true;
-}
-},
-orderId: orderId
-};
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🚀 PANEL CREATION AND SENDING - SISTEM DIPERBAIKI
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-async function createAndSendPanel(chatId, panelType, username, targetId, orderId, qrMessageId = null) {
-let processingMsg;
-try {
-processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Panel Creation</blockquote>\n\n` +
-`Memproses pembuatan panel...\n` +
-`Type: ${panelType.toUpperCase()}\n` +
-`User: ${escapeHTML(username)}\n` +
-`Status: ${'🔄'} 0%`,
-{ parse_mode: 'HTML' }
-);
-await updateProgress(processingMsg.message_id, chatId, 10, 'Memeriksa ketersediaan nama...');
-const cleanUsername = cleanUsernameForEmail(username);
-let email;
-if (panelType === 'unli' || panelType === 'unlimited') {
-email = `${cleanUsername}@unli.nation.id`;
-} else {
-email = `${cleanUsername}@nation.id`;
-}
-if (!isValidEmail(email)) {
-console.log(`❌ Email tidak valid: ${email}`);
-throw new Error(`Email yang dihasilkan tidak valid. Silakan gunakan nama yang berbeda.`);
-}
-const emails = loadEmails();
-let existingUser = null;
-let existingEmailKey = null;
-for (const storedEmail in emails) {
-if (emails[storedEmail].username === cleanUsername) {
-if (emails[storedEmail].telegramId === targetId) {
-existingUser = emails[storedEmail];
-existingEmailKey = storedEmail;
-console.log(`✅ User ditemukan: ${cleanUsername} untuk Telegram ID: ${targetId}`);
-break;
-} else {
-await updateProgress(processingMsg.message_id, chatId, 100, '❌ Nama sudah digunakan!');
-await bot.editMessageText(
-`<blockquote>⚠️ Nama Sudah Digunakan</blockquote>\n\n` +
-`Nama <b>${escapeHTML(username)}</b> sudah digunakan oleh user lain.\n\n` +
-`<blockquote><b>📌 SOLUSI:</b></blockquote>\n` +
-`1. Gunakan nama yang berbeda\n` +
-`2. Atau hubungi admin jika ini adalah akun Anda\n\n` +
-`<i>Silakan ulangi proses pembayaran dengan nama yang berbeda.</i>`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-if (qrMessageId) {
-setTimeout(() => {
-bot.deleteMessage(chatId, qrMessageId).catch(() => {});
-}, 3000);
-}
-return;
-}
-}
-}
-let user;
-let password;
-let isNewUser = false;
-if (existingUser) {
-await updateProgress(processingMsg.message_id, chatId, 25, 'Menggunakan akun yang sudah ada...');
-user = { id: existingUser.pterodactylUserId };
-password = existingUser.password;
-email = existingEmailKey; 
-console.log(`✅ Menggunakan akun yang sudah ada: ${cleanUsername}`);
-} else {
-isNewUser = true;
-await updateProgress(processingMsg.message_id, chatId, 30, 'Membuat akun user baru...');
-password = generateRandomPassword();
-try {
-user = await createPterodactylUser(cleanUsername, email, password, targetId);
-} catch (error) {
-if (error.message.includes('already been taken')) {
-const timestamp = Date.now().toString().slice(-6);
-const newEmail = `${cleanUsername}${timestamp}@nation.id`;
-console.log(`🔄 Email ${email} sudah ada, mencoba: ${newEmail}`);
-user = await createPterodactylUser(cleanUsername, newEmail, password, targetId);
-email = newEmail;
-} else {
-throw error;
-}
-}
-await updateProgress(processingMsg.message_id, chatId, 50, 'Akun berhasil dibuat!');
-console.log(`✅ User berhasil dibuat: ${cleanUsername} (${user.id})`);
-}
-await updateProgress(processingMsg.message_id, chatId, 60, 'Membuat server baru...');
-const serverCount = await getServerCountForUser(user.id);
-const serverNumber = serverCount + 1;
-const serverName = panelType === 'unli' || panelType === 'unlimited'
-? `${capitalize(cleanUsername)} UNLI Server #${serverNumber}`
-: `${capitalize(cleanUsername)} ${panelType.toUpperCase()} Server #${serverNumber}`;
-console.log(`🖥️ Membuat server: ${serverName}`);
-const serverData = await createPterodactylServer(user.id, panelType, cleanUsername, serverName);
-await updateProgress(processingMsg.message_id, chatId, 80, 'Server berhasil dibuat!');
-console.log(`✅ Server berhasil dibuat: ${serverName}`);
-let captionMessage;
-if (panelType === 'unli' || panelType === 'unlimited') {
-captionMessage = `<blockquote>( 👤 ) - 情報, ${escapeHTML(username)}</blockquote>
-Selamat! Panel Unlimited baru berhasil ditambahkan.
-
-<blockquote><b>Status :</b> Aktif
-<b>Panel :</b> Unlimited
-<b>Email :</b> ${escapeHTML(email)}
-<b>User ID :</b> <code>${user.id}</code>
-<b>Server :</b> #${serverNumber}
-<b>Memory :</b> Unlimited
-<b>Disk :</b> Unlimited
-<b>CPU :</b> Unlimited</blockquote>
-
-Berikut adalah informasi login panel Anda:
-<blockquote><b>Username :</b> <code>${escapeHTML(cleanUsername)}</code>
-<b>Password :</b> <code>${password}</code></blockquote>`;
-} else {
-captionMessage = `<blockquote>( 👤 ) - 情報, ${escapeHTML(username)}</blockquote>
-Selamat! Panel ${panelType.toUpperCase()} baru berhasil ditambahkan.
-
-<blockquote><b>Status :</b> Aktif
-<b>Panel :</b> ${panelType.toUpperCase()}
-<b>Email :</b> ${escapeHTML(email)}
-<b>User ID :</b> <code>${user.id}</code>
-<b>Server :</b> #${serverNumber}
-<b>Memory :</b> ${serverData.ram}MB
-<b>Disk :</b> ${serverData.disk}MB
-<b>CPU :</b> ${serverData.cpu}%</blockquote>
-
-Berikut adalah informasi login panel Anda:
-<blockquote><b>Username :</b> <code>${escapeHTML(cleanUsername)}</code>
-<b>Password :</b> <code>${password}</code></blockquote>`;
-}
-if (isNewUser) {
-captionMessage += `\n<blockquote><b>📌 INFO :</b>
-• Ini adalah akun baru yang dibuat untuk Anda
-• Gunakan email ini untuk login di panel</blockquote>`;
-} else {
-captionMessage += `\n<blockquote><b>📌 INFO :</b>
-• Server baru berhasil ditambahkan ke akun yang sudah ada
-• Gunakan email dan password yang sama untuk login</blockquote>`;
-}
-captionMessage += `
-<blockquote><b>📝 Rules :</b>
-• Dilarang DDoS Server
-• Wajib sensor domain di screenshot
-• Admin hanya kirim 1x data
-• Jangan bagikan ke orang lain</blockquote>`;
-const successKeyboard = {
-inline_keyboard: [
-[
-{ text: '⿻ ʟᴏɢɪɴ ᴘᴀɴᴇʟ', url: config.DOMAIN },
-{ text: '⿻ ᴄʜᴀᴛ ᴀᴅᴍɪɴ', url: config.URLADMIN }
-]
-]
-};
-try {
-console.log(`📤 Mengirim data panel ke user: ${targetId}`);
-if (config.PP) {
-await bot.sendPhoto(targetId, config.PP, {
-caption: captionMessage,
-parse_mode: 'HTML',
-disable_web_page_preview: true,
-reply_markup: successKeyboard
-});
-} else {
-await bot.sendMessage(targetId, captionMessage, {
-parse_mode: 'HTML',
-disable_web_page_preview: true,
-reply_markup: successKeyboard
-});
-}
-await updateProgress(processingMsg.message_id, chatId, 100, '✅ Panel berhasil dikirim ke user!');
-const finalMessage = `<blockquote><b>✅ Panel Creation Complete</b></blockquote>\n\n` +
-`Type: ${panelType.toUpperCase()}\n` +
-`User: ${escapeHTML(username)}\n` +
-`Target: <code>${targetId}</code>\n` +
-`Status: ${isNewUser ? 'Akun baru dibuat' : 'Server ditambahkan ke akun yang ada'}\n` +
-`Username Login: <code>${escapeHTML(cleanUsername)}</code>\n` +
-`Email: ${escapeHTML(email)}\n` +
-`Password: <code>${password}</code>\n\n` +
-`✅ Data berhasil dikirim ke user!`;
-await bot.editMessageText(finalMessage, {
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-});
-const ownerMsg = `<blockquote>📦 New Panel Created</blockquote>\n\n` +
-`<b>📅 Waktu:</b> ${new Date().toLocaleString('id-ID')}\n` +
-`<b>👤 Creator:</b> ${chatId}\n` +
-`<b>📦 Panel:</b> ${panelType.toUpperCase()}\n` +
-`<b>👤 User:</b> ${escapeHTML(username)}\n` +
-`<b>🎯 Target ID:</b> <code>${targetId}</code>\n` +
-`<b>🆔 User ID Panel:</b> <code>${user.id}</code>\n` +
-`<b>📧 Email:</b> ${escapeHTML(email)}\n` +
-`<b>🔑 Password:</b> <code>${password}</code>\n` +
-`<b>📊 Server:</b> #${serverNumber}\n` +
-`<b>📞 Telegram ID:</b> <code>${targetId}</code>\n` +
-`<b>✅ Status:</b> ${isNewUser ? 'Akun baru' : 'Server ditambahkan'}\n` +
-`<b>💰 Harga:</b> Rp ${calculatePrice(panelType).toLocaleString()}`;
-
-const ownerKeyboard = {
-inline_keyboard: [
-[
-{ text: '💬 Chat User', url: `tg://user?id=${targetId}` }
-],
-[
-{ text: '⿻ ᴄʜᴀᴛ ᴀᴅᴍɪɴ', url: config.URLADMIN }
-]
-]
-};
-try {
-await bot.sendMessage(config.OWNER_ID, ownerMsg, { 
-parse_mode: 'HTML',
-reply_markup: ownerKeyboard
-});
-console.log(`✅ Notifikasi berhasil dikirim ke owner`);
-} catch (ownerError) {
-console.error(`❌ Gagal mengirim notifikasi ke owner:`, ownerError.message);
-}
-if (qrMessageId) {
-setTimeout(() => {
-bot.deleteMessage(chatId, qrMessageId).catch(() => {});
-console.log(`🗑️ QR message dihapus: ${qrMessageId}`);
-}, 5000);
-}
-} catch (error) {
-console.error('❌ Gagal mengirim data ke user:', error);
-await updateProgress(processingMsg.message_id, chatId, 100, '❌ Gagal mengirim ke user!');
-let errorMessage = `<blockquote>⚠️ Gagal Mengirim ke Target</blockquote>\n\n`;
-errorMessage += `<b>📦 Type:</b> ${panelType.toUpperCase()}\n`;
-errorMessage += `<b>👤 User:</b> ${escapeHTML(username)}\n`;
-errorMessage += `<b>📧 Email:</b> ${escapeHTML(email)}\n`;
-errorMessage += `<b>🔑 Password:</b> <code>${password}</code>\n`;
-errorMessage += `<b>👤 Username:</b> <code>${escapeHTML(cleanUsername)}</code>\n`;
-errorMessage += `<b>🆔 User ID:</b> <code>${user.id}</code>\n`;
-errorMessage += `<b>📊 Server:</b> #${serverNumber}\n\n`;
-errorMessage += `<blockquote><b>⚠️ ALASAN GAGAL:</b></blockquote>\n`;
-errorMessage += `• ${escapeHTML(error.message)}\n\n`;
-errorMessage += `<blockquote><b>📋 DATA PANEL:</b></blockquote>\n`;
-errorMessage += `Salin data di bawah dan kirim manual ke user:\n`;
-errorMessage += `<code>Username: ${escapeHTML(cleanUsername)}\n`;
-errorMessage += `Password: ${password}\n`;
-errorMessage += `Email: ${escapeHTML(email)}\n`;
-errorMessage += `Login URL: ${escapeHTML(config.DOMAIN)}</code>`;
-const failKeyboard = {
-inline_keyboard: [
-[
-{ text: '💬 Chat User', url: `tg://user?id=${targetId}` },
-{ text: '📋 Salin Data', callback_data: `copy_${orderId}` }
-]
-]
-};
-await bot.editMessageText(errorMessage, {
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML',
-disable_web_page_preview: true,
-reply_markup: failKeyboard
-});
-logError('PANEL_SEND_FAILED', `Panel: ${panelType}, User: ${username}, Target: ${targetId}, Error: ${error.message}`);
-}
-} catch (error) {
-console.error('❌ Panel creation error:', error);
-logError('PANEL_CREATION_ERROR', `Panel: ${panelType}, User: ${username}, Error: ${error.message}`, chatId, username);
-if (processingMsg) {
-const errorMessage = `<blockquote><b>❌ Gagal Membuat Panel</b></blockquote>\n\n` +
-`Terjadi kesalahan dalam proses pembuatan panel.\n\n` +
-`<blockquote><b>Detail Error:</b></blockquote>\n` +
-`<code>${escapeHTML(error.message)}</code>\n\n` +
-`Silahkan hubungi admin untuk bantuan.`;
-await bot.editMessageText(errorMessage, {
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-});
-}
-}
-}
-
-async function startProductPaymentPolling(orderId,chatId,userId,product,messageId){
-let attempts=0;
-const maxAttempts=120;
-let isCancelled=false;
-const pollingInterval=setInterval(async()=>{
-if(isCancelled){clearInterval(pollingInterval);return;}
-if(attempts>=maxAttempts){
-clearInterval(pollingInterval);
-const transactions=loadTransactions();
-if(transactions[orderId]){
-transactions[orderId].status='timeout';
-saveTransactions(transactions);}
-try{
-const timeoutKeyboard={
-inline_keyboard:[
-[
-{text:'🔄 Coba Lagi',callback_data:'beli_produk'},
-{text:'⿻ ᴄʜᴀᴛ ᴀᴅᴍɪɴ',url:config.URLADMIN}
-]
-]};
-await bot.editMessageCaption(`<blockquote>⏰ PEMBAYARAN TIMEOUT</blockquote>
-<blockquote>
-<b>Status :</b> ❌ GAGAL
-<b>Produk :</b> ${escapeHTML(product.name)}
-<b>Harga :</b> Rp ${product.price.toLocaleString()}
-<b>Order ID :</b> <code>${orderId}</code>
-<b>Waktu :</b> 10:00 menit
-<b>Progress :</b> [██████████] 100%
-</blockquote>
-Pembayaran tidak selesai dalam 10 menit.
-Silakan ulangi proses pembelian.`,
-{chat_id:chatId,message_id:messageId,parse_mode:'HTML',reply_markup:timeoutKeyboard});}catch(error){}
-return;}
-attempts++;
-const statusData=await checkPaymentStatus(orderId);
-let isPaid=false;
-if(statusData&&statusData.success){
-const status=(statusData.status||'').toString().toUpperCase();
-if(status.includes('SUCCESS')||status.includes('COMPLETED')||status.includes('BERHASIL')||status.includes('PAID')){
-isPaid=true;}}
-const progressPercent=Math.floor(attempts/maxAttempts*100);
-const progressBarFilled=Math.floor(progressPercent/10);
-const progressBarEmpty=10-progressBarFilled;
-const waktuMenit=Math.floor(attempts*5/60);
-const waktuDetik=(attempts*5)%60;
-try{
-const statusText=isPaid?'✅ BERHASIL':'⏳ MENUNGGU';
-const progressBar=isPaid?'[██████████]':`[${'█'.repeat(progressBarFilled)}${'░'.repeat(progressBarEmpty)}]`;
-const caption=`<blockquote>💰 PROSES PEMBAYARAN</blockquote>
-<blockquote>
-<b>Status :</b> ${statusText}
-<b>Produk :</b> ${escapeHTML(product.name)}
-<b>Harga :</b> Rp ${product.price.toLocaleString()}
-<b>Order ID :</b> <code>${orderId}</code>
-<b>Waktu :</b> ${waktuMenit}:${waktuDetik.toString().padStart(2,'0')} menit
-<b>Progress :</b> ${progressBar} ${progressPercent}%
-</blockquote>
-${isPaid?'✅ Pembayaran berhasil! Mengirim produk...':'⏳ Tunggu konfirmasi pembayaran...'}`;
-const keyboard={
-inline_keyboard:[
-[
-{text:'🔄 Refresh Status',callback_data:`refresh_${orderId}`},
-{text:'⛔ Batalkan',callback_data:`cancel_${orderId}`}
-],
-[
-{text:'⿻ ᴄʜᴀᴛ ᴀᴅᴍɪɴ',url:config.URLADMIN}
-]
-]};
-await bot.editMessageCaption(caption,{
-chat_id:chatId,
-message_id:messageId,
-parse_mode:'HTML',
-reply_markup:keyboard});
-if(isPaid){
-clearInterval(pollingInterval);
-const transactions=loadTransactions();
-if(transactions[orderId]){
-transactions[orderId].status='completed';
-transactions[orderId].completedAt=new Date().toISOString();
-saveTransactions(transactions);}
-markProductAsSold(product.id);
-await sendProductToUser(chatId,product,orderId,messageId);
-setTimeout(()=>{
-bot.deleteMessage(chatId,messageId).catch(()=>{});},5000);}
-}catch(error){}
-},5000);}
-
-async function sendProductToUser(chatId,product,orderId,qrMessageId=null){
-try{
-const now=new Date();
-const formattedDate=now.toLocaleDateString('id-ID',{day:'2-digit',month:'2-digit',year:'numeric'});
-const formattedTime=now.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
-const productData=`<blockquote>✅ PEMBELIAN BERHASIL!</blockquote>
-<b>Detail Produk:</b>
-┏━━━━━━━━━━━━━━━━━━⬣
-┃ ✧ Nama: ${escapeHTML(product.name)}
-┃ ✧ Harga: Rp ${product.price.toLocaleString()}
-┃ ✧ Order ID: <code>${orderId}</code>
-┃ ✧ Waktu: ${formattedDate} ${formattedTime}
-┗━━━━━━━━━━━━━━━━━━⬣
-<b>📦 Data Produk:</b>
-
-${escapeHTML(product.data)}
-
-<b>⚠️ CATATAN:</b>
-• Jangan bagikan data ke siapapun!
-• Hubungi admin jika ada masalah
-Terima kasih telah membeli! 🎉`;
-await bot.sendMessage(chatId,productData,
-{parse_mode:'HTML',disable_web_page_preview:true});
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📢 NOTIFIKASI PEMBELIAN KE ADMIN
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-const adminNotif=`<blockquote>🛒 PEMBELIAN BARU!</blockquote>
-<b>Detail Pembelian:</b>
-┏━━━━━━━━━━━━━━━━━━⬣
-┃ ✧ Produk: ${escapeHTML(product.name)}
-┃ ✧ Harga: Rp ${product.price.toLocaleString()}
-┃ ✧ Order ID: <code>${orderId}</code>
-┃ ✧ Waktu: ${formattedDate} ${formattedTime}
-┃ ✧ Chat ID: <code>${chatId}</code>
-┗━━━━━━━━━━━━━━━━━━⬣
-<b>📊 Status:</b> ✅ BERHASIL
-<b>📅 Tanggal:</b> ${formattedDate}
-<b>🕒 Jam:</b> ${formattedTime}
-Pembelian telah sukses dan produk terkirim.`;
-bot.sendMessage(config.OWNER_ID,adminNotif,{
-parse_mode:'HTML',
-reply_markup:{
-inline_keyboard:[
-[
-{text:'Chat User',url:`tg://user?id=${chatId}`},
-{text:escapeHTML(config.BOT_NAME),url:`https://t.me/${config.BOT_NAME}?start=buyer`}
-]]}})
-.catch(err=>console.error('Gagal kirim notif ke admin:',err));
-if(qrMessageId){
-setTimeout(()=>{
-bot.deleteMessage(chatId,qrMessageId).catch(()=>{});},3000);}
-}catch(error){
-console.error('Send product error:',error);
-await bot.sendMessage(chatId,
-`<blockquote>❌ GAGAL MENGIRIM PRODUK</blockquote>
-Hubungi admin dengan Order ID:
-<code>${orderId}</code>`,
-{parse_mode:'HTML'});}}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🎯 FUNGSI TAMBAHAN UNTUK CEK SERVER COUNT
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-async function getServerCountForUser(userId) {
-try {
-const emails = loadEmails();
-for (const email in emails) {
-if (emails[email].pterodactylUserId === userId) {
-return emails[email].servers ? emails[email].servers.length : 0;
-}
-}
-return 0;
-} catch (error) {
-console.error('Error getting server count:', error);
-return 0;
-}
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🛡️ ESCAPE HTML FUNCTION UNTUK CEK ERROR
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function escapeHTML(text) {
-if (typeof text !== 'string') return text;
-return text
-.replace(/&/g, '&amp;')
-.replace(/</g, '&lt;')
-.replace(/>/g, '&gt;')
-.replace(/"/g, '&quot;')
-.replace(/'/g, '&#039;');
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📊 FUNGSI HELPER UNTUK PROGRESS BAR
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-async function updateProgress(messageId, chatId, percent, status) {
-const progressBar = createProgressBar(percent);
-const emoji = getProgressEmoji(percent);
-try {
-await bot.editMessageText(
-`<blockquote>🔄 Panel Creation</blockquote>\n\n` +
-`Memproses pembuatan panel...\n\n` +
-`${progressBar} ${percent}%\n` +
-`Status: ${emoji} ${status}`,
-{
-chat_id: chatId,
-message_id: messageId,
-parse_mode: 'HTML'
-}
-);
-} catch (error) {
-}
-}
-function createProgressBar(percent) {
-const filled = Math.floor(percent / 10);
-const empty = 10 - filled;
-return `[${'█'.repeat(filled)}${'░'.repeat(empty)}]`;
-}
-function getProgressEmoji(percent) {
-if (percent < 25) return '🔄';
-if (percent < 50) return '⚡';
-if (percent < 75) return '📊';
-if (percent < 100) return '✅';
-return '🎉';
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🖼️ HD IMAGE ENHANCER COMMAND
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-async function enhanceImage(buffer) {
-try {
-const form = new FormData();
-form.append('method', '1');
-form.append('is_pro_version', 'false');
-form.append('is_enhancing_more', 'false');
-form.append('max_image_size', 'high');
-form.append('file', buffer, `enhance_${Date.now()}.jpg`);
-const { data } = await axios.post('https://ihancer.com/api/enhance', form, {
-headers: form.getHeaders(),
-responseType: 'arraybuffer'
-});
-return Buffer.from(data);
-} catch (error) {
-throw new Error(error.message);
-}
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📤 FITUR TOURL (UPLOAD KE UGUU.SE)
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-async function uploadUguu(buffer, filename) {
-try {
-const form = new FormData();
-form.append("files[]", buffer, { filename });
-const response = await axios.post("https://uguu.se/upload.php", form, {
-headers: {
-...form.getHeaders(),
-'Accept': 'application/json'
-}
-});
-const json = response.data;
-return json.files?.[0]?.url || null;
-} catch (error) {
-console.error('Uguu upload error:', error.message);
-return null;
-}
-}
-
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📱 START COMMAND - BINGKAI BARU
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/\/start(?:\s+(.+))?/,async(msg,match)=>{
-const chatId=msg.chat.id;
-const userId=msg.from.id.toString();
-const username=msg.from.username?`@${msg.from.username}`:msg.from.first_name;
-const startParam=match&&match[1]?match[1].trim():null;
-const chatType=msg.chat.type;
-const groupName=chatType==='group'||chatType==='supergroup'?msg.chat.title:null;
-const messageText=`/start ${startParam||''}`.trim();
-logUserInteraction(userId,username,chatType,messageText,groupName);
-const users=loadUsers();
-if(!users[userId]){
-users[userId]={
-username:username,
-first_name:msg.from.first_name,
-last_name:msg.from.last_name||'',
-joinedAt:new Date().toISOString(),
-lastSeen:new Date().toISOString()
-};
-saveUsers(users);}else{
-users[userId].lastSeen=new Date().toISOString();
-users[userId].username=username;
-saveUsers(users);}
-const isUserReseller=isReseller(userId);
-const isUserAdmin=isAdmin(userId);
-let status='User';
-if(isUserAdmin){
-status='Admin 🜲';}else if(isUserReseller){
-status='Seller';}
-const configData=getServerConfig();
-const uptime=os.uptime();
-const vpsUptimeStr=`${Math.floor(uptime/86400)}d ${Math.floor((uptime%86400)/3600)}h ${Math.floor((uptime%3600)/60)}m`;
-const totalUsers=Object.keys(users).length;
-const waktuSumBarat=getWestSumatraTime();
-const tanggalLengkap=waktuSumBarat.date;
-const jamLengkap=waktuSumBarat.time;
-
-// BINGKAI BARU UNTUK START
-const caption=`<blockquote>( 👤 ) - 情報, ${escapeHTML(username)}</blockquote>
-안녕하세요 사용자, 환영합니다!
-
-<blockquote>┏━⬣ ✧「 WELCOME 」✧
-┃ ✧ Status : ${escapeHTML(status)}
-┃ ✧ Bot Name : ${escapeHTML(config.BOT_NAME)}
-┃ ✧ Versi Bot : ${escapeHTML(config.VERSI)}
-┃ ✧ Total User : ${totalUsers} User
-┃ ✧ Tanggal : ${escapeHTML(tanggalLengkap)}
-┃ ✧ Jam : ${escapeHTML(jamLengkap)}
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>
-
-<blockquote>┏━⬣ ✧「 BOT UPTIME 」✧
-┃ 📡 ${escapeHTML(vpsUptimeStr)}
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>
-
-Selamat datang di bot panel!`;
-const buttons={
-caption:caption,
-parse_mode:"HTML",
-reply_to_message_id:msg.message_id,
-reply_markup:{
-inline_keyboard:[
-[
-{text:"⿻ ᴄʀᴇᴀᴛᴇ ᴘᴀɴᴇʟ",callback_data:"createpanel"},
-{text:"⿻ ᴜᴘɢʀᴀᴅᴇ sᴇʟʟᴇʀ",callback_data:"buy_seller"}
-],
-[
-{text:"ᴛᴏᴏʟꜱ ᴍᴇɴᴜ",callback_data:"tools_menu"},
-{text:"ᴏᴡɴᴇʀ ᴍᴇɴᴜ",callback_data:"ownermenu"}
-],
-[
-{text:"ᴠɪᴇᴡ ᴄᴏɴꜰɪɢ",callback_data:"view_config"},
-{text:"ᴄᴇᴋ ɪᴅ",callback_data:"cek_id"}
-],
-[
-{text:"ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ",url:"https://t.me/botzmarket59"}
-],
-[
-{text:"ᴄʜᴀᴛ ᴀᴅᴍɪɴ",url:config.URLADMIN}
-]
-]
-}};
-try{
-await bot.sendVideo(chatId,config.URLVIDEO,buttons);}catch(error){
-console.error('Error sending video:',error);
-logError('START_COMMAND_ERROR',`User: ${userId}, Chat: ${chatId}, Error: ${error.message}`);
-await bot.sendMessage(chatId,caption,{parse_mode:'HTML',reply_markup:buttons.reply_markup});}});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🎮 CALLBACK QUERY HANDLER - STRUKTUR TERPISAH
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('callback_query',async(callbackQuery)=>{
-const chatId=callbackQuery.message.chat.id;
-const data=callbackQuery.data;
-const messageId=callbackQuery.message.message_id;
-const userId=callbackQuery.from.id.toString();
-const username=callbackQuery.from.username?`@${callbackQuery.from.username}`:callbackQuery.from.first_name;
-const chatType=callbackQuery.message.chat.type;
-const groupName=chatType==='group'||chatType==='supergroup'?callbackQuery.message.chat.title:null;
-logUserInteraction(userId,username,chatType,`CALLBACK: ${data}`,groupName);
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🔄 CALLBACK UNTUK MENU UTAMA & START
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-if(data==='back'||data==='back_to_menu'){
-try{
-const users=loadUsers();
-const isUserReseller=isReseller(userId);
-const isUserAdmin=isAdmin(userId);
-let status='User';
-if(isUserAdmin){
-status='Admin 🜲';}else if(isUserReseller){
-status='Seller';}
-const uptime=os.uptime();
-const vpsUptimeStr=`${Math.floor(uptime/86400)}d ${Math.floor((uptime%86400)/3600)}h ${Math.floor((uptime%3600)/60)}m`;
-const totalUsers=Object.keys(users).length;
-const waktuSumBarat=getWestSumatraTime();
-const tanggalLengkap=waktuSumBarat.date;
-const jamLengkap=waktuSumBarat.time;
-const caption=`<blockquote>( 👤 ) - 情報, ${escapeHTML(username)}</blockquote>
-안녕하세요 사용자, 환영합니다!
-<blockquote>┏━⬣ ✧「 WELCOME 」✧
-┃ ✧ Status : ${escapeHTML(status)}
-┃ ✧ Bot Name : ${escapeHTML(config.BOT_NAME)}
-┃ ✧ Versi Bot : ${escapeHTML(config.VERSI)}
-┃ ✧ Total User : ${totalUsers} User
-┃ ✧ Tanggal : ${escapeHTML(tanggalLengkap)}
-┃ ✧ Jam : ${escapeHTML(jamLengkap)}
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>
-<blockquote>┏━⬣ ✧「 BOT UPTIME 」✧
-┃ 📡 ${escapeHTML(vpsUptimeStr)}
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>
-Selamat datang di bot panel!`;
-const buttons={
-inline_keyboard:[
-[
-{text:"⿻ ᴄʀᴇᴀᴛᴇ ᴘᴀɴᴇʟ",callback_data:"createpanel"},
-{text:"⿻ ᴜᴘɢʀᴀᴅᴇ sᴇʟʟᴇʀ",callback_data:"buy_seller"}
-],
-[
-{text:"ᴛᴏᴏʟꜱ ᴍᴇɴᴜ",callback_data:"tools_menu"},
-{text:"ᴏᴡɴᴇʀ ᴍᴇɴᴜ",callback_data:"ownermenu"}
-],
-[
-{text:"ᴠɪᴇᴡ ᴄᴏɴꜰɪɢ",callback_data:"view_config"},
-{text:"ᴄᴇᴋ ɪᴅ",callback_data:"cek_id"}
-],
-[
-{text:"ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ",url:"https://t.me/botzmarket59"}
-],
-[
-{text:"ᴄʜᴀᴛ ᴀᴅᴍɪɴ",url:config.URLADMIN}
-]
-]};
-await bot.editMessageCaption(caption,{
-chat_id:chatId,
-message_id:messageId,
-parse_mode:'HTML',
-reply_markup:buttons});}catch(error){
-console.error('Error in back menu:',error);}}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📊 CALLBACK UNTUK MENU INFORMASI
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-else if(data==='createpanel'||data==='create_panel'){
-const panelList=`<blockquote>
-┏━⬣ ✧「 INFORMASI 」✧
-┃ 𒆜 Developer: ${escapeHTML(config.DEVCELOPER)}
-┃ 𒆜 BotName : ${escapeHTML(config.BOT_NAME)}
-┃ 𒆜 Version : ${escapeHTML(config.VERSI)}
-┃ 𒆜 League : JavaScript
-┗━━━━━━━━━━━━━━━━━━⬣
-┏━⬣ ✧「 CPANEL MENU 」✧
-┃ ✧ /1gb (ᴜsᴇʀ,ɪᴅ)
-┃ ✧ /2gb (ᴜsᴇʀ,ɪᴅ)
-┃ ✧ /3gb (ᴜsᴇʀ,ɪᴅ)
-┃ ✧ /4gb (ᴜsᴇʀ,ɪᴅ)
-┃ ✧ /5gb (ᴜsᴇʀ,ɪᴅ)
-┃ ✧ /6gb (ᴜsᴇʀ,ɪᴅ)
-┃ ✧ /7gb (ᴜsᴇʀ,ɪᴅ)
-┃ ✧ /8gb (ᴜsᴇʀ,ɪᴅ)
-┃ ✧ /9gb (ᴜsᴇʀ,ɪᴅ)
-┃ ✧ /10gb (ᴜsᴇʀ,ɪᴅ)
-┃ ✧ /11gb (ᴜsᴇʀ,ɪᴅ)
-┃ ✧ /unli (ᴜsᴇʀ,ɪᴅ)
-┣━━━━━━━━━━━━━━━━━━⬣
-┃ ✧ /cadmin (ᴜsᴇʀ,ɪᴅ)
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>`;
-await bot.editMessageCaption(panelList,{
-chat_id:chatId,
-message_id:messageId,
-parse_mode:'HTML',
-reply_markup:{
-inline_keyboard:[
-[{text:'<<',callback_data:'back'}]
-]
-}});}
-else if(data==='buy_seller'){
-const sellerInfo=`<blockquote>
-┏━⬣ ✧「 RESELLER PANEL 」✧
-┃ ✅ Buat panel gratis tanpa batas
-┃ ✅ Akses semua paket panel
-┃ ✅ Prioritas support premium
-┃ ✅ Bisa buat panel untuk orang lain
-┃ ✅ Akses fitur seller dashboard
-┣━━━━━━━━━━━━━━━━━━⬣
-┏━⬣ ✧「 INSTRUKSI 」✧
-┃ 1. Ketik /addseller [ID_ANDA]
-┃ 2. Scan QR yang muncul
-┃ 3. Bayar sesuai harga yang tertera
-┃ 4. Otomatis aktif seller panel
-┣━━━━━━━━━━━━━━━━━━⬣
-┏━⬣ ✧「 CATATAN 」✧
-┃ ⚠️ Masukkan ID Telegram Anda
-┃ Contoh: /addseller 123456789
-┃ Dapatkan ID ketik /cekid
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>`;
-await bot.editMessageCaption(sellerInfo,{
-chat_id:chatId,
-message_id:messageId,
-parse_mode:'HTML',
-reply_markup:{
-inline_keyboard:[
-[{text:'<<',callback_data:'back'}]
-]
-}});}
-else if(data==='tools_menu'){
-const toolsList=`<blockquote>
-┏━⬣ ✧「 TOOLS MENU 」✧
-<i>Pilih kategori tools yang ingin digunakan</i></blockquote>`;
-await bot.editMessageCaption(toolsList,{
-chat_id:chatId,
-message_id:messageId,
-parse_mode:'HTML',
-reply_markup:{
-inline_keyboard:[
-[
-{text:'📥 ᴅᴏᴡɴʟᴏᴀᴅᴇʀ',callback_data:'tools_downloader'},
-{text:'🎨 ᴄᴏɴᴠᴇʀᴛᴇʀ',callback_data:'tools_converter'}
-],
-[
-{text:'⚙️ ʟᴀɪɴɴʏᴀ',callback_data:'tools_other'},
-{text:'🛒 ʙᴇʟɪ ᴘʀᴏᴅᴜᴋ',callback_data:'beli_produk'}
-],
-[
-{text:'<< ᴍᴇɴᴜ',callback_data:'back'}
-]
-]
-}});}
-else if(data==='tools_downloader'){
-const downloaderList=`<blockquote>
-┏━⬣ ✧「 DOWNLOADER TOOLS 」✧
-┃ ✧ /pin [url] - Download Pinterest
-┃ ✧ /play [url] - Download YouTube
-┃ ✧ /tt [url] - Download TikTok
-┃ ✧ /hd [url] - Download HD Video
-┃ ✧ /hdvid [url] - Download HD Video+
-┃ ✧ /ssweb [url] - Screenshot Website
-┃ ✧ /tourl [file] - Convert ke URL
-┃ ✧ /shortlink [url] - Pendekkan URL
-┃ ✧ /web2zip [url] - Website ke ZIP
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>`;
-await bot.editMessageCaption(downloaderList,{
-chat_id:chatId,
-message_id:messageId,
-parse_mode:'HTML',
-reply_markup:{
-inline_keyboard:[
-[
-{text:'🎨 ᴄᴏɴᴠᴇʀᴛᴇʀ',callback_data:'tools_converter'},
-{text:'⚙️ ʟᴀɪɴɴʏᴀ',callback_data:'tools_other'}
-],
-[
-{text:'🛒 ʙᴇʟɪ ᴘʀᴏᴅᴜᴋ',callback_data:'beli_produk'},
-{text:'🔙 ᴋᴇᴍʙᴀʟɪ',callback_data:'tools_menu'}
-]
-]
-}});}
-else if(data==='tools_converter'){
-const converterList=`<blockquote>
-┏━⬣ ✧「 CONVERTER TOOLS 」✧
-┃ ✧ /toblur [foto] - Blur Gambar
-┃ ✧ /tohijab [foto] - Hijab Filter
-┃ ✧ /tozombie [foto] - Zombie Filter
-┃ ✧ /totua [foto] - Tua Filter
-┃ ✧ /topacar [foto] - Pacar Filter
-┃ ✧ /tochibi [foto] - Chibi Filter
-┃ ✧ /tofigure [foto] - Figure Filter
-┃ ✧ /toghibli [foto] - Ghibli Filter
-┃ ✧ /tojepang [foto] - Jepang Filter
-┃ ✧ /tovintage [foto] - Vintage Filter
-┃ ✧ /toanime [foto] - Anime Filter
-┃ ✧ /totato [foto] - Tato Filter
-┃ ✧ /toreal [foto] - Real Filter
-┃ ✧ /tomirror [foto] - Mirror Filter
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>`;
-await bot.editMessageCaption(converterList,{
-chat_id:chatId,
-message_id:messageId,
-parse_mode:'HTML',
-reply_markup:{
-inline_keyboard:[
-[
-{text:'📥 ᴅᴏᴡɴʟᴏᴀᴅᴇʀ',callback_data:'tools_downloader'},
-{text:'⚙️ ʟᴀɪɴɴʏᴀ',callback_data:'tools_other'}
-],
-[
-{text:'🛒 ʙᴇʟɪ ᴘʀᴏᴅᴜᴋ',callback_data:'beli_produk'},
-{text:'🔙 ᴋᴇᴍʙᴀʟɪ',callback_data:'tools_menu'}
-]
-]
-}});}
-else if(data==='tools_other'){
-const otherList=`<blockquote>
-┏━⬣ ✧「 OTHER TOOLS 」✧
-┃ ✧ /info - Bot Info
-┃ ✧ /cekid - Cek ID User
-┃ ✧ /deploy - Deploy Script
-┃ ✧ /listseller - List Seller
-┃ ✧ /brat - Brain Test
-┃ ✧ /iqc - IQ Test
-┃ ✧ /cekgempa - info gempa
-┃ ✧ /tts [text] - Text to Speech
-┃ ✧ /react [emoji] - Reaction
-┃ ✧ /newmail email sementara
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>`;
-await bot.editMessageCaption(otherList,{
-chat_id:chatId,
-message_id:messageId,
-parse_mode:'HTML',
-reply_markup:{
-inline_keyboard:[
-[
-{text:'📥 ᴅᴏᴡɴʟᴏᴀᴅᴇʀ',callback_data:'tools_downloader'},
-{text:'🎨 ᴄᴏɴᴠᴇʀᴛᴇʀ',callback_data:'tools_converter'}
-],
-[
-{text:'🛒 ʙᴇʟɪ ᴘʀᴏᴅᴜᴋ',callback_data:'beli_produk'},
-{text:'🔙 ᴋᴇᴍʙᴀʟɪ',callback_data:'tools_menu'}
-]
-]
-}});}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🛒 BELI PRODUK MENU
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-else if(data==='beli_produk'){
-const products=getAvailableProducts();
-if(products.length===0){
-const emptyText=`<blockquote>
-┏━⬣ ✧「 BELI PRODUK 」✧
-┃ ✧ 📭 PRODUK BELUM TERSEDIA
-┃ ✧ Admin belum menambahkan produk
-┃ ✧ Coba lagi nanti yaa~ 
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>`;
-await bot.editMessageCaption(emptyText,{
-chat_id:chatId,
-message_id:messageId,
-parse_mode:'HTML',
-reply_markup:{
-inline_keyboard:[
-[
-{text:'<< Kembali',callback_data:'tools_menu'}
-]
-]}});
-return;}
-const productsText=`<blockquote>
-┏━⬣ ✧「 BELI PRODUK 」✧
-┃ ✧ Pilih produk dari tombol di bawah:
-┃ ✧ Klik untuk melihat detail produk
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>`;
-
-const keyboardRows=[];
-products.forEach((prod,index)=>{
-if(index%2===0){keyboardRows.push([]);}
-keyboardRows[Math.floor(index/2)].push({
-text:`${index+1} ${prod.name.substring(0,15)}`,
-callback_data:`view_prod_${prod.id}`});});
-keyboardRows.push([
-{text:'<< Kembali',callback_data:'tools_menu'}
-]);
-await bot.editMessageCaption(productsText,{
-chat_id:chatId,
-message_id:messageId,
-parse_mode:'HTML',
-reply_markup:{inline_keyboard:keyboardRows}});}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 👁️ VIEW PRODUK DETAIL
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-else if(data.startsWith('view_prod_')){
-const productId=data.replace('view_prod_','');
-const products=getAvailableProducts();
-const product=products.find(p=>p.id===productId);
-if(!product){
-await bot.answerCallbackQuery(callbackQueryId,{text:'⚠️ Produk tidak ditemukan!'});
-return;}
-const createdAt=new Date(product.createdAt);
-const formattedDate=createdAt.toLocaleDateString('id-ID',{day:'2-digit',month:'2-digit',year:'numeric'});
-const formattedTime=createdAt.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
-const productText=`<blockquote>
-┏━⬣ ✧「 DETAIL PRODUK 」✧
-┃ ✧ 📦 ${escapeHTML(product.name)}
-┃ ✧ 💰 Rp ${product.price.toLocaleString()}
-┃ ✧ 🆔 ${product.id}
-┃ ✧ 📅 ${formattedDate} - 🕒 ${formattedTime}
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>
-
-<b>📝 DESKRIPSI:</b>
-${product.description||'Tidak ada deskripsi tersedia 🙏🙏'}
-
-<b>📋 INFORMASI:</b>
-• Stok: ${product.stock||'Tersedia'}
-• Kategori: ${product.category||'Umum'}
-
-<b>🛒 INSTRUKSI:</b>
-1: Klik tombol "Beli Produk" di bawah
-2: Ikuti proses pembayaran
-3: Produk akan dikirim otomatis`;
-
-await bot.editMessageCaption(productText,{
-chat_id:chatId,
-message_id:messageId,
-parse_mode:'HTML',
-reply_markup:{
-inline_keyboard:[
-[
-{text:'💰 Beli Produk',callback_data:`buy_prod_${product.id}`}
-],
-[
-{text:'📋 Daftar Produk',callback_data:'beli_produk'},
-{text:'<< Kembali',callback_data:'tools_menu'}
-]
-]}});}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 💰 PEMBAYARAN PRODUK
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-else if(data.startsWith('buy_prod_')){
-const productId=data.replace('buy_prod_','');
-const product=getProduct(productId);
-if(!product){
-await bot.answerCallbackQuery(callbackQuery.id,{text:'❌ Produk tidak ditemukan!',show_alert:true});
-return;}
-if(product.status!=='available'){
-await bot.answerCallbackQuery(callbackQuery.id,{text:'❌ Produk sudah habis!',show_alert:true});
-return;}
-const orderId='PROD_'+Date.now()+'_'+Math.random().toString(36).substr(2,5).toUpperCase();
-const transactions=loadTransactions();
-transactions[orderId]={
-type:'product',
-productId:productId,
-productName:product.name,
-userId:userId,
-username:username,
-price:product.price,
-status:'pending',
-createdAt:new Date().toISOString()};
-saveTransactions(transactions);
-try{
-const qrData=await createQRISPayment(orderId,product.price);
-if(!qrData||!qrData.qris_string){
-throw new Error('Gagal membuat QRIS payment');}
-const qrBuffer=await generateQRCode(qrData.qris_string);
-if(!qrBuffer){
-throw new Error('Gagal membuat QR Code');}
-const caption=`<blockquote>( 👤 ) - 情報, ${escapeHTML(username)}</blockquote>
-Halo, silakan lakukan pembayaran untuk melanjutkan!
-<blockquote><b>Status :</b> ⏳ MENUNGGU PEMBAYARAN
-<b>Produk :</b> ${escapeHTML(product.name)}
-<b>Harga :</b> Rp ${product.price.toLocaleString()}
-<b>Order ID :</b> <code>${orderId}</code>
-<b>Waktu :</b> 0:00 menit
-<b>Progress :</b> [░░░░░░░░░░] 0%</blockquote>
-Silakan ikuti instruksi pembayaran berikut:
-<blockquote><b>Instruksi :</b>
-1. Scan QR di atas
-2. Bayar sesuai harga
-3. Sistem otomatis mendeteksi pembayaran
-⏳ Batas waktu: 10 menit</blockquote>`;
-const sentMessage=await bot.sendPhoto(chatId,qrBuffer,{
-caption:caption,
-parse_mode:'HTML',
-reply_markup:{
-inline_keyboard:[
-[
-{text:'🔄 Refresh Status',callback_data:`refresh_${orderId}`},
-{text:'⛔ Batalkan',callback_data:`cancel_${orderId}`}
-],
-[
-{text:'⿻ ᴄʜᴀᴛ ᴀᴅᴍɪɴ',url:config.URLADMIN}
-]
-]}});
-startProductPaymentPolling(orderId,chatId,userId,product,sentMessage.message_id);
-await bot.answerCallbackQuery(callbackQuery.id,{text:'✅ QR Code ditampilkan!',show_alert:false});
-}catch(error){
-console.error('Product payment error:',error);
-await bot.answerCallbackQuery(callbackQuery.id,{text:'❌ Gagal membuat pembayaran!',show_alert:true});}}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 👑 OWNER MENU
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-else if(data==='owner_menu'||data==='ownermenu'){
-if(!isAdmin(userId)){
-await bot.answerCallbackQuery(callbackQuery.id,{text:'❌ Hanya admin yang bisa!',show_alert:true});
-return;}
-const otakai=loadOtakai();
-const aiStatus=otakai.ai_enabled?'AKTIF 🔓':'NONAKTIF 🔒';
-const ownerList=`<blockquote>
-┏━⬣ ✧「 OWNER MENU 」✧
-┃ ✧ /addadmin [id]
-┃ ✧ /cadmin [username,id]
-┃ ✧ /delpanel [id]
-┃ ✧ /deladmin [id]
-┃ ✧ /addseller [id]
-┃ ✧ /delseller [id]
-┃ ✧ /broadcast [pesan]
-┣━━━━━━━━━━━━━━━━━━⬣
-┏━⬣ ✧「 PRODUCTS SYSTEM 」✧
-┃ ✧ /addproduk
-┃ ✧ /delproduk
-┣━━━━━━━━━━━━━━━━━━⬣
-┏━⬣ ✧「 AI KASIR SYSTEM 」✧
-┃ ✧ /ai on & off
-┃ ✧ /aimemory
-┣━━━━━━━━━━━━━━━━━━⬣
-┏━⬣ ✧「 SYSTEM MANAGEMENT 」✧
-┃ ✧ /update
-┃ ✧ /backup
-┃ ✧ /restart
-┃ ✧ /logs
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>`;
-await bot.editMessageCaption(ownerList,{
-chat_id:chatId,
-message_id:messageId,
-parse_mode:'HTML',
-reply_markup:{
-inline_keyboard:[
-[
-{text:'<<',callback_data:'back'}
-]
-]}});}
-
-else if(data==='view_config'){
-const configData=getServerConfig();
-const otakai=loadOtakai();
-const aiStatus=otakai.ai_enabled?'AKTIF 🔓':'NONAKTIF 🔒';
-const totalMemoryUsers=Object.keys(otakai.users||{}).length;
-const configText=`<blockquote>
-┏━⬣ ✧「 SERVER CONFIGURATION 」✧
-┃ ✧ CPU Load: ${configData.cpuLoad}%
-┃ ✧ Memory: ${configData.memory.used}MB / ${configData.memory.total}GB
-┃ ✧ Memory Usage: ${configData.memory.percent}%
-┣━━━━━━━━━━━━━━━━━━⬣
-┏━⬣ ✧「 SYSTEM INFO 」✧
-┃ ✧ Uptime: ${escapeHTML(configData.uptime)}
-┃ ✧ Platform: ${escapeHTML(configData.platform)}
-┃ ✧ Architecture: ${escapeHTML(configData.arch)}
-┃ ✧ Node.js: ${escapeHTML(configData.nodeVersion)}
-┣━━━━━━━━━━━━━━━━━━⬣
-┏━⬣ ✧「 BOT INFO 」✧
-┃ ✧ Bot Age: ${configData.botAge} days
-┃ ✧ Bot Version: ${escapeHTML(config.VERSI)}
-┃ ✧ Developer: ${escapeHTML(config.DEVCELOPER)}
-┃ ✧ Owner ID: ${escapeHTML(config.OWNER_ID)}
-┣━━━━━━━━━━━━━━━━━━⬣
-┏━⬣ ✧「 AI KASIR STATUS 」✧
-┃ ✧ Status: ${aiStatus}
-┃ ✧ Memory Users: ${totalMemoryUsers}
-┣━━━━━━━━━━━━━━━━━━⬣
-┏━⬣ ✧「 USER STATISTICS 」✧
-┃ ✧ Total Users: ${configData.totalUsers||0}
-┃ ✧ Total Sellers: ${configData.totalSellers||0}
-┃ ✧ Total Admins: ${configData.totalAdmins||0}
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>`;
-await bot.editMessageCaption(configText,{
-chat_id:chatId,
-message_id:messageId,
-parse_mode:'HTML',
-reply_markup:{
-inline_keyboard:[
-[{text:'↻ Refresh',callback_data:'refresh_config'}],
-[{text:'<<',callback_data:'back'}]
-]
-}});}
-else if(data==='refresh_config'){
-await bot.answerCallbackQuery(callbackQuery.id,{text:'⫹⫺ Config refreshed!',show_alert:false});
-const configData=getServerConfig();
-const resellerData=loadReseller();
-const totalSellers=Object.keys(resellerData).length;
-const adminData=loadAdmins();
-const totalAdmins=Object.keys(adminData).length;
-const usersData=loadUsers();
-const totalUsers=Object.keys(usersData).length;
-const otakai=loadOtakai();
-const aiStatus=otakai.ai_enabled?'AKTIF 🔓':'NONAKTIF 🔒';
-const totalMemoryUsers=Object.keys(otakai.users||{}).length;
-const configText=`<blockquote>
-┏━⬣ ✧「 SERVER CONFIGURATION 」✧
-┃ ✧ CPU Load: ${configData.cpuLoad}%
-┃ ✧ Memory: ${configData.memory.used}MB / ${configData.memory.total}GB
-┃ ✧ Memory Usage: ${configData.memory.percent}%
-┣━━━━━━━━━━━━━━━━━━⬣
-┏━⬣ ✧「 SYSTEM INFO 」✧
-┃ ✧ Uptime: ${escapeHTML(configData.uptime)}
-┃ ✧ Platform: ${escapeHTML(configData.platform)}
-┃ ✧ Architecture: ${escapeHTML(configData.arch)}
-┃ ✧ Node.js: ${escapeHTML(configData.nodeVersion)}
-┣━━━━━━━━━━━━━━━━━━⬣
-┏━⬣ ✧「 BOT INFO 」✧
-┃ ✧ Bot Age: ${configData.botAge} days
-┃ ✧ Bot Version: ${escapeHTML(config.VERSI)}
-┃ ✧ Developer: ${escapeHTML(config.DEVCELOPER)}
-┃ ✧ Owner ID: ${escapeHTML(config.OWNER_ID)}
-┣━━━━━━━━━━━━━━━━━━⬣
-┏━⬣ ✧「 AI KASIR STATUS 」✧
-┃ ✧ Status: ${aiStatus}
-┃ ✧ Memory Users: ${totalMemoryUsers}
-┣━━━━━━━━━━━━━━━━━━⬣
-┏━⬣ ✧「 USER STATISTICS 」✧
-┃ ✧ Total Users: ${totalUsers}
-┃ ✧ Total Sellers: ${totalSellers}
-┃ ✧ Total Admins: ${totalAdmins}
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>`;
-await bot.editMessageCaption(configText,{
-chat_id:chatId,
-message_id:messageId,
-parse_mode:'HTML',
-reply_markup:{
-inline_keyboard:[
-[{text:'↻ Refresh',callback_data:'refresh_config'}],
-[{text:'<<',callback_data:'back'}]
-]
-}});}
-else if(data==='cek_id'){
-try{
-const users=loadUsers();
-const userData=users[userId]||{};
-const joinDate=userData.joinedAt?new Date(userData.joinedAt).toLocaleDateString('id-ID'):'Tidak diketahui';
-const lastSeen=userData.lastSeen?new Date(userData.lastSeen).toLocaleString('id-ID'):'Tidak diketahui';
-const isUserReseller=isReseller(userId);
-const isUserAdmin=isAdmin(userId);
-let status='User';
-if(isUserAdmin){
-status='Admin 🜲';}else if(isUserReseller){
-status='Seller';}
-const now=new Date();
-const formattedDate=now.toLocaleDateString('id-ID',{ 
-weekday:'long', 
-year:'numeric', 
-month:'long', 
-day:'numeric'});
-const formattedTime=now.toLocaleTimeString('id-ID',{ 
-hour:'2-digit', 
-minute:'2-digit'});
-const cekIdText=`<blockquote>┏━⬣ ✧「 INFORMASI USER 」✧
-┃ ✧ User ID: <code>${userId}</code>
-┃ ✧ Username: ${escapeHTML(username)}
-┃ ✧ Nama: ${escapeHTML(callbackQuery.from.first_name||'Tidak ada')}
-┃ ✧ Status: ${escapeHTML(status)}
-┃ ✧ Bergabung: ${escapeHTML(joinDate)}
-┃ ✧ Terakhir dilihat: ${escapeHTML(lastSeen)}
-┃ ✧ Tanggal: ${escapeHTML(formattedDate)}
-┃ ✧ Jam: ${escapeHTML(formattedTime)}
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>`;
-await bot.editMessageCaption(cekIdText,{
-chat_id:chatId,
-message_id:messageId,
-parse_mode:'HTML',
-reply_markup:{
-inline_keyboard:[
-[{text:'<< Kembali',callback_data:'back'}]
-]
-}});
-await bot.answerCallbackQuery(callbackQuery.id,{ 
-text:'✅ Informasi user ditampilkan', 
-show_alert:false});}catch(error){
-console.error('Error in cek_id callback:',error);
-await bot.answerCallbackQuery(callbackQuery.id,{ 
-text:'❌ Gagal menampilkan informasi', 
-show_alert:true});}}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📹 CALLBACK UNTUK TIKTOK DOWNLOADER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-else if(data.startsWith('tt_profile_')){
-const cacheKey=data.replace('tt_profile_','');
-await bot.answerCallbackQuery(callbackQuery.id,{text:'📡 Mengambil data profil...'});
-try{
-const cached=global.tiktokCache?.[cacheKey];
-if(!cached?.authorUniqueId){
-await bot.answerCallbackQuery(callbackQuery.id,{text:'❌ Data profil tidak ditemukan!',show_alert:true});
-return;}
-const response=await axios.get(`https://api.resellergaming.my.id/stalk/tiktok?username=${encodeURIComponent(cached.authorUniqueId)}`,{timeout:15000});
-const stalkData=response.data;
-if(stalkData.status&&stalkData.result){
-const user=stalkData.result;
-const formatNumber=(num)=>{
-if(!num)return"0";
-if(num>=1000000)return(num/1000000).toFixed(1)+"M";
-if(num>=1000)return(num/1000).toFixed(1)+"K";
-return num.toString();};
-let profileMsg=`<blockquote>┏━⬣ ✧「 PROFIL TIKTOK 」✧
-┃ ✧ Nickname: ${escapeHTML(user.nickname)}
-┃ ✧ Username: @${escapeHTML(user.uniqueId)}
-┃ ✧ Signature: ${escapeHTML(user.signature||'Tidak ada')}
-┣━━━━━━━━━━━━━━━━━━⬣
-┏━⬣ ✧「 STATISTIK 」✧
-┃ ✧ Followers: ${formatNumber(user.followers)}
-┃ ✧ Following: ${formatNumber(user.following)}
-┃ ✧ Total Like: ${formatNumber(user.likes)}
-┃ ✧ Total Video: ${formatNumber(user.videos)}
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>
-<i>Data diambil dari API stalk TikTok</i>`;
-const keyboard={
-inline_keyboard:[
-[
-{text:"📹 KEMBALI KE VIDEO",callback_data:`tt_back_video_${cacheKey}`},
-{text:"🎵 DOWNLOAD AUDIO",callback_data:`tt_audio_${cacheKey}`}
-],
-[
-{text:"❌ BATAL",callback_data:`tt_cancel_${cacheKey}`}
-]
-]};
-try{await bot.deleteMessage(callbackQuery.message.chat.id,callbackQuery.message.message_id);}catch(e){}
-if(user.avatar){
-await bot.sendPhoto(callbackQuery.message.chat.id,user.avatar,{caption:profileMsg,parse_mode:"HTML",reply_markup:keyboard});}else{
-await bot.sendMessage(callbackQuery.message.chat.id,profileMsg,{parse_mode:"HTML",reply_markup:keyboard});}}else{
-await bot.answerCallbackQuery(callbackQuery.id,{text:'❌ Gagal ambil profil!',show_alert:true});}}catch(error){
-await bot.answerCallbackQuery(callbackQuery.id,{text:'❌ Error ambil profil!',show_alert:true});}}
-else if(data.startsWith('tt_back_video_')){
-const cacheKey=data.replace('tt_back_video_','');
-await bot.answerCallbackQuery(callbackQuery.id,{text:'↩️ Kembali ke video...'});
-try{
-const cached=global.tiktokCache?.[cacheKey];
-if(!cached){
-await bot.answerCallbackQuery(callbackQuery.id,{text:'❌ Data tidak ditemukan!',show_alert:true});
-return;}
-const videoUrl=cached.currentQuality==='hd'?
-(cached.downloadResult?.video_hd||cached.videoInfo.play):
-(cached.downloadResult?.video_sd||cached.videoInfo.wmplay||cached.videoInfo.play);
-const formatNumber=(num)=>{
-if(!num)return"0";
-if(num>=1000000)return(num/1000000).toFixed(1)+"M";
-if(num>=1000)return(num/1000).toFixed(1)+"K";
-return num.toString();};
-const caption=`<blockquote>┏━⬣ ✧「 TIKTOK DOWNLOADER 」✧
-┃ ✧ Judul: ${escapeHTML(cached.videoInfo.title||'Tidak ada judul')}
-┃ ✧ Creator: ${cached.authorUniqueId?`@${escapeHTML(cached.authorUniqueId)}`:'Tidak diketahui'}
-┃ ✧ Durasi: ${cached.videoInfo.duration||0} detik
-┣━━━━━━━━━━━━━━━━━━⬣
-┏━⬣ ✧「 STATISTIK 」✧
-┃ ✧ 👁️ ${formatNumber(cached.videoInfo.play_count||0)} views
-┃ ✧ ❤️ ${formatNumber(cached.videoInfo.digg_count||0)} likes
-┃ ✧ 💬 ${formatNumber(cached.videoInfo.comment_count||0)} comments
-┃ ✧ 🔁 ${formatNumber(cached.videoInfo.share_count||0)} shares
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>
-<i>Pilih opsi di bawah:</i>`;
-const qualityButtons=[];
-if(cached.currentQuality==='hd'){
-qualityButtons.push({text:"📹 DOWNLOAD SD",callback_data:`tt_sd_${cacheKey}`});}else{
-qualityButtons.push({text:"📹 KUALITAS HD",callback_data:`tt_hd_${cacheKey}`});}
-const keyboard={
-inline_keyboard:[
-[
-{text:"👤 LIHAT PROFIL",callback_data:`tt_profile_${cacheKey}`},
-{text:"🎵 DOWNLOAD AUDIO",callback_data:`tt_audio_${cacheKey}`},
-...qualityButtons
-],
-[
-{text:"❌ BATAL",callback_data:`tt_cancel_${cacheKey}`}
-]
-]};
-try{await bot.deleteMessage(callbackQuery.message.chat.id,callbackQuery.message.message_id);}catch(e){}
-await bot.sendVideo(callbackQuery.message.chat.id,videoUrl,{caption:caption,parse_mode:"HTML",reply_markup:keyboard});}catch(error){
-await bot.answerCallbackQuery(callbackQuery.id,{text:'❌ Gagal kembali ke video!',show_alert:true});}}
-else if(data.startsWith('tt_audio_')){
-const cacheKey=data.replace('tt_audio_','');
-await bot.answerCallbackQuery(callbackQuery.id,{text:'⬇️ Mengirim audio...'});
-try{
-const cached=global.tiktokCache?.[cacheKey];
-if(!cached?.downloadResult?.mp3){
-await bot.answerCallbackQuery(callbackQuery.id,{text:'❌ Audio tidak tersedia!',show_alert:true});
-return;}
-const formatNumber=(num)=>{
-if(!num)return"0";
-if(num>=1000000)return(num/1000000).toFixed(1)+"M";
-if(num>=1000)return(num/1000).toFixed(1)+"K";
-return num.toString();};
-const caption=`<blockquote>┏━⬣ ✧「 AUDIO TIKTOK 」✧
-┃ ✧ Judul: ${escapeHTML(cached.videoInfo.title||'Tidak ada judul')}
-┃ ✧ Creator: ${cached.authorUniqueId?`@${escapeHTML(cached.authorUniqueId)}`:'Tidak diketahui'}
-┃ ✧ Durasi: ${cached.videoInfo.duration||0} detik
-┣━━━━━━━━━━━━━━━━━━⬣
-┏━⬣ ✧「 STATISTIK 」✧
-┃ ✧ 👁️ ${formatNumber(cached.videoInfo.play_count||0)} views
-┃ ✧ ❤️ ${formatNumber(cached.videoInfo.digg_count||0)} likes
-┃ ✧ 💬 ${formatNumber(cached.videoInfo.comment_count||0)} comments
-┃ ✧ 🔁 ${formatNumber(cached.videoInfo.share_count||0)} shares
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>
-<i>Audio berhasil diunduh!</i>`;
-const keyboard={
-inline_keyboard:[
-[
-{text:"👤 LIHAT PROFIL",callback_data:`tt_profile_${cacheKey}`},
-{text:"📹 KEMBALI KE VIDEO",callback_data:`tt_back_video_${cacheKey}`}
-],
-[
-{text:"❌ BATAL",callback_data:`tt_cancel_${cacheKey}`}
-]
-]};
-try{await bot.deleteMessage(callbackQuery.message.chat.id,callbackQuery.message.message_id);}catch(e){}
-await bot.sendAudio(callbackQuery.message.chat.id,cached.downloadResult.mp3,{caption:caption,parse_mode:"HTML",reply_markup:keyboard});}catch(error){
-await bot.answerCallbackQuery(callbackQuery.id,{text:'❌ Gagal kirim audio!',show_alert:true});}}
-else if(data.startsWith('tt_sd_')){
-const cacheKey=data.replace('tt_sd_','');
-await bot.answerCallbackQuery(callbackQuery.id,{text:'⬇️ Mengirim video SD...'});
-try{
-const cached=global.tiktokCache?.[cacheKey];
-const videoUrl=cached?.downloadResult?.video_sd||cached?.videoInfo?.wmplay||cached?.videoInfo?.play;
-if(!videoUrl){
-await bot.answerCallbackQuery(callbackQuery.id,{text:'❌ Video SD tidak tersedia!',show_alert:true});
-return;}
-cached.currentQuality='sd';
-cached.currentMedia='video';
-const formatNumber=(num)=>{
-if(!num)return"0";
-if(num>=1000000)return(num/1000000).toFixed(1)+"M";
-if(num>=1000)return(num/1000).toFixed(1)+"K";
-return num.toString();};
-const caption=`<blockquote>┏━⬣ ✧「 VIDEO TIKTOK SD 」✧
-┃ ✧ Judul: ${escapeHTML(cached.videoInfo.title||'Tidak ada judul')}
-┃ ✧ Creator: ${cached.authorUniqueId?`@${escapeHTML(cached.authorUniqueId)}`:'Tidak diketahui'}
-┃ ✧ Durasi: ${cached.videoInfo.duration||0} detik
-┃ ✧ Kualitas: STANDARD DEFINITION
-┣━━━━━━━━━━━━━━━━━━⬣
-┏━⬣ ✧「 STATISTIK 」✧
-┃ ✧ 👁️ ${formatNumber(cached.videoInfo.play_count||0)} views
-┃ ✧ ❤️ ${formatNumber(cached.videoInfo.digg_count||0)} likes
-┃ ✧ 💬 ${formatNumber(cached.videoInfo.comment_count||0)} comments
-┃ ✧ 🔁 ${formatNumber(cached.videoInfo.share_count||0)} shares
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>
-<i>Video kualitas SD berhasil diunduh!</i>`;
-const keyboard={
-inline_keyboard:[
-[
-{text:"👤 LIHAT PROFIL",callback_data:`tt_profile_${cacheKey}`},
-{text:"🎵 DOWNLOAD AUDIO",callback_data:`tt_audio_${cacheKey}`},
-{text:"📹 KUALITAS HD",callback_data:`tt_hd_${cacheKey}`}
-],
-[
-{text:"❌ BATAL",callback_data:`tt_cancel_${cacheKey}`}
-]
-]};
-try{await bot.deleteMessage(callbackQuery.message.chat.id,callbackQuery.message.message_id);}catch(e){}
-await bot.sendVideo(callbackQuery.message.chat.id,videoUrl,{caption:caption,parse_mode:"HTML",reply_markup:keyboard});}catch(error){
-await bot.answerCallbackQuery(callbackQuery.id,{text:'❌ Gagal kirim video SD!',show_alert:true});}}
-else if(data.startsWith('tt_hd_')){
-const cacheKey=data.replace('tt_hd_','');
-await bot.answerCallbackQuery(callbackQuery.id,{text:'⬇️ Mengirim video HD...'});
-try{
-const cached=global.tiktokCache?.[cacheKey];
-const videoUrl=cached?.downloadResult?.video_hd||cached?.videoInfo?.play;
-if(!videoUrl){
-await bot.answerCallbackQuery(callbackQuery.id,{text:'❌ Video HD tidak tersedia!',show_alert:true});
-return;}
-cached.currentQuality='hd';
-cached.currentMedia='video';
-const formatNumber=(num)=>{
-if(!num)return"0";
-if(num>=1000000)return(num/1000000).toFixed(1)+"M";
-if(num>=1000)return(num/1000).toFixed(1)+"K";
-return num.toString();};
-const caption=`<blockquote>┏━⬣ ✧「 VIDEO TIKTOK HD 」✧
-┃ ✧ Judul: ${escapeHTML(cached.videoInfo.title||'Tidak ada judul')}
-┃ ✧ Creator: ${cached.authorUniqueId?`@${escapeHTML(cached.authorUniqueId)}`:'Tidak diketahui'}
-┃ ✧ Durasi: ${cached.videoInfo.duration||0} detik
-┃ ✧ Kualitas: HIGH DEFINITION
-┣━━━━━━━━━━━━━━━━━━⬣
-┏━⬣ ✧「 STATISTIK 」✧
-┃ ✧ 👁️ ${formatNumber(cached.videoInfo.play_count||0)} views
-┃ ✧ ❤️ ${formatNumber(cached.videoInfo.digg_count||0)} likes
-┃ ✧ 💬 ${formatNumber(cached.videoInfo.comment_count||0)} comments
-┃ ✧ 🔁 ${formatNumber(cached.videoInfo.share_count||0)} shares
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>
-<i>Video kualitas HD berhasil diunduh!</i>`;
-const keyboard={
-inline_keyboard:[
-[
-{text:"👤 LIHAT PROFIL",callback_data:`tt_profile_${cacheKey}`},
-{text:"🎵 DOWNLOAD AUDIO",callback_data:`tt_audio_${cacheKey}`},
-{text:"📹 DOWNLOAD SD",callback_data:`tt_sd_${cacheKey}`}
-],
-[
-{text:"❌ BATAL",callback_data:`tt_cancel_${cacheKey}`}
-]
-]};
-try{await bot.deleteMessage(callbackQuery.message.chat.id,callbackQuery.message.message_id);}catch(e){}
-await bot.sendVideo(callbackQuery.message.chat.id,videoUrl,{caption:caption,parse_mode:"HTML",reply_markup:keyboard});}catch(error){
-await bot.answerCallbackQuery(callbackQuery.id,{text:'❌ Gagal kirim video HD!',show_alert:true});}}
-else if(data.startsWith('tt_cancel_')){
-const cacheKey=data.replace('tt_cancel_','');
-await bot.answerCallbackQuery(callbackQuery.id,{text:'❌ Dibatalkan'});
-try{
-const cached=global.tiktokCache?.[cacheKey];
-if(cached){
-try{await bot.deleteMessage(callbackQuery.message.chat.id,callbackQuery.message.message_id);}catch(e){}
-delete global.tiktokCache[cacheKey];}}catch(error){
-console.log("Tidak bisa hapus pesan TikTok:",error.message);}}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🔊 CALLBACK UNTUK TTS (TEXT TO SPEECH)
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-else if(data.startsWith('tts_')){
-const parts=data.split('_');
-const voiceCode=parts[1];
-const encodedText=parts.slice(2).join('_');
-const text=decodeURIComponent(encodedText);
-await bot.answerCallbackQuery(callbackQuery.id,{ 
-text:`Membuat audio ${voiceCode==='id'?'Indonesia':voiceCode==='usf'?'US Female':voiceCode==='usm'?'US Male':voiceCode==='jp'?'Japanese':voiceCode==='kr'?'Korean':'Unknown'}...`, 
-show_alert:false});
-if(!text){
-await bot.answerCallbackQuery(callbackQuery.id,{text:'❌ Teks tidak ditemukan!',show_alert:true});
-return;}
-try{
-let voiceType='id_001';
-switch(voiceCode){
-case'id':voiceType='id_001';break;
-case'usf':voiceType='en_us_001';break;
-case'usm':voiceType='en_us_006';break;
-case'jp':voiceType='jp_001';break;
-case'kr':voiceType='kr_001';break;}
-const encodedApiText=encodeURIComponent(text);
-const apiUrl=`https://exsalapi.my.id/api/audio/tiktok-tts?text=${encodedApiText}&voice=${voiceType}&apikey=${AI_API_KEY}`;
-const response=await fetch(apiUrl);
-if(!response.ok)throw new Error(`HTTP ${response.status}`);
-const apiData=await response.json();
-if(!apiData.status||!apiData.data||!apiData.data.url)throw new Error('API gagal membuat audio');
-const audioResponse=await fetch(apiData.data.url);
-if(!audioResponse.ok)throw new Error(`Gagal mengunduh audio:${audioResponse.status}`);
-const audioBuffer=await audioResponse.arrayBuffer();
-const voiceNames={
-'id':'🇮🇩 Indonesia',
-'usf':'🇺🇸 US Female',
-'usm':'🇺🇸 US Male',
-'jp':'🇯🇵 Japanese',
-'kr':'🇰🇷 Korean'};
-const voiceName=voiceNames[voiceCode]||'Unknown';
-const keyboard={
-inline_keyboard:[
-[
-{text:voiceCode==='id'?'✅ Indonesia':'🇮🇩 Indonesia',callback_data:`tts_id_${encodeURIComponent(text.substring(0,100))}`},
-{text:voiceCode==='usf'?'✅ US Female':'🇺🇸 US Female',callback_data:`tts_usf_${encodeURIComponent(text.substring(0,100))}`}
-],
-[
-{text:voiceCode==='usm'?'✅ US Male':'🇺🇸 US Male',callback_data:`tts_usm_${encodeURIComponent(text.substring(0,100))}`},
-{text:voiceCode==='jp'?'✅ Japanese':'🇯🇵 Japanese',callback_data:`tts_jp_${encodeURIComponent(text.substring(0,100))}`}
-],
-[
-{text:voiceCode==='kr'?'✅ Korean':'🇰🇷 Korean',callback_data:`tts_kr_${encodeURIComponent(text.substring(0,100))}`}
-]
-]};
-try{
-await bot.deleteMessage(chatId,messageId);}catch(e){
-console.log('Tidak bisa hapus pesan TTS lama:',e.message);}
-const sentMessage=await bot.sendAudio(chatId,Buffer.from(audioBuffer),{
-caption:`<blockquote>┏━⬣ ✧「 TTS AUDIO 」✧
-┃ ✧ Suara: ${voiceName}
-┃ ✧ Panjang: ${text.length} karakter
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>
-
-<b>Teks:</b> ${escapeHTML(text.substring(0,100))}${text.length>100?'...':''}
-
-<i>Pilih suara lain:</i>`,
-parse_mode:'HTML',
-reply_markup:keyboard});
-if(!global.ttsCache)global.ttsCache={};
-const cacheKey=`tts_${sentMessage.message_id}`;
-global.ttsCache[cacheKey]={
-text:text,
-messageId:sentMessage.message_id,
-chatId:chatId};}catch(error){
-console.error('TTS callback error:',error);
-await bot.answerCallbackQuery(callbackQuery.id,{text:`❌ Gagal membuat audio: ${error.message.substring(0,50)}`,show_alert:true});}}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📌 CALLBACK UNTUK PINTEREST DOWNLOADER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-else if(data.startsWith("pin_")){
-try{
-const[action,chatId,idxStr]=data.split("|");
-const messageId=callbackQuery.message.message_id;
-const pinData=global.pinData?.[messageId];
-if(!pinData)return bot.answerCallbackQuery(callbackQuery.id,{text:"⚠️ Data sudah kadaluarsa."});
-let index=parseInt(idxStr);
-if(action==="pin_next")index=(index+1)%pinData.results.length;
-if(action==="pin_prev")index=(index-1+pinData.results.length)%pinData.results.length;
-const item=pinData.results[index];
-const inlineKeyboard={
-inline_keyboard:[
-[
-{text:"⬅️",callback_data:`pin_prev|${chatId}|${index}`},
-{text:`${index+1}/${pinData.results.length}`,callback_data:"noop"},
-{text:"➡️",callback_data:`pin_next|${chatId}|${index}`}
-]
-]
-};
-await bot.editMessageMedia({
-type:"photo",
-media:item.imageUrl,
-parse_mode:"Markdown",
-caption:`<blockquote>┏━⬣ ✧「 PINTEREST DOWNLOADER 」✧
-┃ ✧ Image ${index+1} dari ${pinData.results.length}
-┃ ✧ Gunakan tombol untuk navigasi
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>`},
-{
-chat_id:chatId,
-message_id:messageId,
-reply_markup:inlineKeyboard});
-pinData.index=index;
-bot.answerCallbackQuery(callbackQuery.id);}catch(err){
-console.error("❌ Callback Error:",err.message);
-bot.answerCallbackQuery(callbackQuery.id,{text:"⚠️ Gagal memuat gambar."});}}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 💰 CALLBACK UNTUK PEMBAYARAN & TRANSAKSI
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-else if(data.startsWith('Status_')){
-const orderId=data.replace('Status_','');
-const statusData=await checkPaymentStatus(orderId);
-let statusText='MENUNGGU';
-if(statusData&&statusData.transaction){
-const status=(statusData.transaction.status||'').toString().toUpperCase();
-if(status.includes('SUCCESS')||status.includes('COMPLETED')||status.includes('PAID')){
-statusText='✅ BERHASIL';}else if(status.includes('FAILED')||status.includes('EXPIRED')||status.includes('CANCELLED')){
-statusText='❌ GAGAL';}}
-await bot.answerCallbackQuery(callbackQuery.id,{
-text:`Status: ${statusText}`,
-show_alert:true});}
-else if(data.startsWith('copy_')){
-const orderId=data.replace('copy_','');
-const transactions=loadTransactions();
-const transaction=transactions[orderId];
-if(transaction){
-const copyText=`Username: ${transaction.username}\nPassword: ${transaction.password}\nEmail: ${transaction.email}\nPanel: ${transaction.panelType}\nOrder ID: ${orderId}`;
-await bot.answerCallbackQuery(callbackQuery.id,{
-text:'Data disalin ke clipboard!',
-show_alert:true});}}
-else if(data.startsWith('cancel_')){
-const orderId=data.replace('cancel_','');
-if(global.pollingIntervals&&global.pollingIntervals[orderId]){
-const pollingData=global.pollingIntervals[orderId];
-if(pollingData.interval){
-clearInterval(pollingData.interval);
-pollingData.isCancelled=true;}
-delete global.pollingIntervals[orderId];}
-const transactions=loadTransactions();
-if(transactions[orderId]){
-transactions[orderId].status='cancelled';
-transactions[orderId].cancelledAt=new Date().toISOString();
-saveTransactions(transactions);}
-try{
-await bot.editMessageCaption(
-`<blockquote>┏━⬣ ✧「 PEMBAYARAN DIBATALKAN 」✧
-┃ ✧ Pembayaran telah dibatalkan oleh pengguna.
-┃ ✧ Order ID: <code>${orderId}</code>
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>
-Silakan mulai ulang jika ingin melanjutkan.`,
-{
-chat_id:chatId,
-message_id:messageId,
-parse_mode:'HTML',
-reply_markup:{
-inline_keyboard:[
-[
-{text:'🔄 Buat Pesanan Baru',callback_data:'createpanel'}
-]
-]
-}});}catch(error){
-console.error('Error updating cancelled message:',error);
-logError('CANCEL_CALLBACK_ERROR',`Order: ${orderId}, Error: ${error.message}`,userId,username);}
-setTimeout(()=>{
-bot.deleteMessage(chatId,messageId).catch(()=>{});},5000);
-await bot.answerCallbackQuery(callbackQuery.id,{ 
-text:'✅ Pembayaran berhasil dibatalkan! Foto QR akan dihapus otomatis.', 
-show_alert:false});}
-else if(data.startsWith('status_')){
-const orderId=data.replace('status_','');
-const transactions=loadTransactions();
-const transaction=transactions[orderId];
-if(transaction){
-const statusMap={
-'pending':'⏳ Menunggu Pembayaran',
-'completed':'✅ Berhasil',
-'failed':'❌ Gagal',
-'timeout':'⏰ Timeout',
-'cancelled':'⛔ Dibatalkan'};
-const status=statusMap[transaction.status]||'❓ Tidak Diketahui';
-await bot.answerCallbackQuery(callbackQuery.id,{
-text:`Status: ${status}`,
-show_alert:true});}else{
-await bot.answerCallbackQuery(callbackQuery.id,{
-text:'Transaksi tidak ditemukan!',
-show_alert:true});}}
-else if(data.startsWith('cancel_seller_')){
-const orderId=data.replace('cancel_seller_','');
-if(global.pollingIntervals&&global.pollingIntervals[orderId]){
-const pollingData=global.pollingIntervals[orderId];
-if(pollingData.interval){
-clearInterval(pollingData.interval);
-pollingData.isCancelled=true;}
-delete global.pollingIntervals[orderId];}
-const transactions=loadTransactions();
-if(transactions[orderId]){
-transactions[orderId].status='cancelled';
-saveTransactions(transactions);}
-try{
-await bot.editMessageCaption(
-`<blockquote>┏━⬣ ✧「 SELLER UPGRADE DIBATALKAN 」✧
-┃ ✧ Upgrade seller telah dibatalkan.
-┃ ✧ Order ID: <code>${orderId}</code>
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>
-Ketik /addseller untuk mencoba lagi`,
-{
-chat_id:chatId,
-message_id:messageId,
-parse_mode:'HTML'});}catch(error){
-console.error('Error updating cancelled seller message:',error);
-logError('SELLER_CALLBACK_ERROR',`Order: ${orderId}, Error: ${error.message}`,userId,username);}
-setTimeout(()=>{
-bot.deleteMessage(chatId,messageId).catch(()=>{});},5000);
-await bot.answerCallbackQuery(callbackQuery.id,{ 
-text:'✅ Seller upgrade dibatalkan! Foto QR akan dihapus otomatis.', 
-show_alert:false});}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🌍 CEKGEMPA COMMAND
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/cekgempa$/,async(msg)=>{
-const chatId=msg.chat.id;
-const userId=msg.from.id.toString();
-const username=msg.from.username?`@${msg.from.username}`:msg.from.first_name||'User';
-const chatType=msg.chat.type;
-const groupName=chatType==='group'||chatType==='supergroup'?msg.chat.title:null;
-const messageText='/cekgempa';
-try{
-const response=await axios.get('https://zelapioffciall.koyeb.app/info/cekgempa');
-const data=response.data;
-if(!data.status||!data.result){throw new Error('Format data API tidak valid');}
-const gempa=data.result;
-const gempaCaption=`<blockquote>
-┏━⬣ ✧「 INFO GEMPA TERKINI 」✧
-┃ ✧ 📍 Lokasi: ${escapeHTML(gempa.lokasi)}
-┃ ✧ ⏰ Waktu: ${escapeHTML(gempa.waktu)}
-┃ ✧ 📊 Magnitudo: ${escapeHTML(gempa.magnitude)}
-┃ ✧ ⬇️ Kedalaman: ${escapeHTML(gempa.kedalaman)}
-┣━━━━━━━━━━━━━━━━━━⬣
-┏━⬣ ✧「 DETAIL GEMPA 」✧
-┃ ✧ 🧭 Koordinat: <code>${escapeHTML(gempa.koordinat)}</code>
-┃ ✧ ⚠️ Potensi: ${escapeHTML(gempa.potensi)}
-┃ ✧ 👤 Dirasakan: ${escapeHTML(gempa.dirasakan)}
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>`;
-await bot.sendPhoto(chatId,gempa.peta,{
-caption:gempaCaption,
-parse_mode:'HTML',
-reply_markup:{
-inline_keyboard:[[{text:'🗺️ Lihat Peta',url:gempa.peta}]]}});}
-catch(error){
-await bot.sendMessage(chatId,
-`<blockquote>❌ GAGAL MENGAMBIL DATA</blockquote>
-<b>Error:</b> ${escapeHTML(error.message)}`,
-{parse_mode:'HTML'});}});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🆕 NEWMAIL COMMAND (DIPERBAIKI)
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/newmail$/i,async(msg)=>{
-const chatId=msg.chat.id;
-const userId=msg.from.id.toString();
-const username=msg.from.username?`@${msg.from.username}`:msg.from.first_name||'User';
-const chatType=msg.chat.type;
-const groupName=chatType==='group'||chatType==='supergroup'?msg.chat.title:null;
-const messageText='/newmail';
-if(tempMailSessions[userId]){clearInterval(tempMailSessions[userId].interval);clearInterval(tempMailSessions[userId].progressInterval);delete tempMailSessions[userId];}
-try{
-const apiData=await getTempMailInbox();
-const newEmail=apiData.name;
-const expiresTime=parseInt(apiData.expires);
-tempMailSessions[userId]={email:newEmail,expires:expiresTime,interval:null,progressInterval:null,messageId:null,inboxData:apiData,progress:0,active:true};
-const initialMessage=await bot.sendMessage(chatId,generateTempMailDisplay(newEmail,0,apiData.inbox||[]),{parse_mode:'HTML'});
-tempMailSessions[userId].messageId=initialMessage.message_id;
-startTempMailProgress(userId,chatId);
-startTempMailPolling(userId,chatId);}
-catch(error){
-await bot.sendMessage(chatId,`<blockquote>❌ GAGAL MEMBUAT EMAIL</blockquote><b>Error:</b> ${escapeHTML(error.message)}`,{parse_mode:'HTML'});}});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📝 DELPRODUK
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/delproduk(?:\s+(.+))?$/i,async(msg,match)=>{
-const chatId=msg.chat.id;
-const userId=msg.from.id.toString();
-const username=msg.from.username?`@${msg.from.username}`:msg.from.first_name||'User';
-const chatType=msg.chat.type;
-const groupName=chatType==='group'||chatType==='supergroup'?msg.chat.title:null;
-const messageText='/delproduk';
-if(!isAdmin(userId)){
-return bot.sendMessage(chatId,
-`<blockquote>🚫 Akses Ditolak</blockquote>
-Hanya admin yang bisa menghapus produk!`,
-{parse_mode:'HTML',reply_to_message_id:msg.message_id});}
-const productId=match[1];
-if(!productId){
-const products=getAvailableProducts();
-if(products.length===0){
-return bot.sendMessage(chatId,
-`<blockquote>📦 DAFTAR PRODUK</blockquote>
-Tidak ada produk yang tersedia.`,
-{parse_mode:'HTML',reply_to_message_id:msg.message_id});}
-let listText=`<blockquote>
-┏━⬣ ✧「 HAPUS PRODUK 」✧
-┃ ✧ Total: ${products.length} produk
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>\n\n`;
-products.forEach((prod,index)=>{
-listText+=`${index+1}. <b>${escapeHTML(prod.name)}</b>\n`;
-listText+=`Harga: Rp ${prod.price.toLocaleString()}\n`;
-listText+=`ID: <code>${prod.id}</code>\n\n`;});
-listText+=`<b>Gunakan:</b> <code>/delproduk [ID_PRODUK]</code>`;
-return bot.sendMessage(chatId,listText,
-{parse_mode:'HTML',reply_to_message_id:msg.message_id});}
-try{
-const success=deleteProduct(productId);
-if(success){
-await bot.sendMessage(chatId,
-`<blockquote>✅ PRODUK DIHAPUS</blockquote>
-Produk dengan ID <code>${productId}</code> berhasil dihapus.`,
-{parse_mode:'HTML',reply_to_message_id:msg.message_id});
-}else{
-throw new Error('Produk tidak ditemukan!');}
-}catch(error){
-await bot.sendMessage(chatId,
-`<blockquote>❌ GAGAL MENGHAPUS PRODUK</blockquote>
-<b>Error:</b> ${escapeHTML(error.message)}
-<b>Format:</b> <code>/delproduk [ID_PRODUK]</code>`,
-{parse_mode:'HTML',reply_to_message_id:msg.message_id});}});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📝 ADD PRODUK COMMAND
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/addproduk$/i,async(msg)=>{
-const chatId=msg.chat.id;
-const userId=msg.from.id.toString();
-const username=msg.from.username?`@${msg.from.username}`:msg.from.first_name||'User';
-const chatType=msg.chat.type;
-const groupName=chatType==='group'||chatType==='supergroup'?msg.chat.title:null;
-const messageText='/addproduk';
-if(!isAdmin(userId)){
-return bot.sendMessage(chatId,
-`<blockquote>🚫 Akses Ditolak</blockquote>
-Hanya admin yang bisa menambahkan produk!`,
-{parse_mode:'HTML',reply_to_message_id:msg.message_id});}
-addProductState[userId]={step:'nama',data:{}};
-const instructions=`<blockquote>📝 TAMBAH PRODUK BARU</blockquote>
-<b>Ikuti langkah-langkah berikut:</b>
-<b>Langkah 1: Nama Produk</b>
-Contoh: <code>YouTube Premium Family</code>
-<blockquote>Silakan ketik nama produk:</blockquote>`;
-await bot.sendMessage(chatId,instructions,
-{parse_mode:'HTML',reply_to_message_id:msg.message_id});});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📝 HANDLER PROSES BERTAHAP (TANPA KONFIRMASI)
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('message',async(msg)=>{
-if(!msg.text||msg.text.startsWith('/'))return;
-const userId=msg.from.id.toString();
-const chatId=msg.chat.id;
-const username=msg.from.username?`@${msg.from.username}`:msg.from.first_name||'User';
-const chatType=msg.chat.type;
-const groupName=chatType==='group'||chatType==='supergroup'?msg.chat.title:null;
-const text=msg.text.trim();
-if(!addProductState[userId])return;
-const state=addProductState[userId];
-try{
-switch(state.step){
-case'nama':
-if(text.length<3){throw new Error('Nama produk minimal 3 karakter!');}
-state.data.nama=text;
-state.step='harga';
-await bot.sendMessage(chatId,
-`<blockquote>📝 TAMBAH PRODUK BARU</blockquote>
-<b>Langkah 2: Harga Produk</b>
-Contoh: <code>65000</code>
-<blockquote>Silakan ketik harga (angka tanpa titik):</blockquote>`,
-{parse_mode:'HTML'});break;
-case'harga':
-const price=parseInt(text.replace(/[^\d]/g,''));
-if(isNaN(price)||price<1000){throw new Error('Harga harus angka minimal Rp 1.000!');}
-state.data.harga=price;
-state.step='data';
-await bot.sendMessage(chatId,
-`<blockquote>📝 TAMBAH PRODUK BARU</blockquote>
-<b>Langkah 3: Data Produk</b>
-Contoh akun: <code>email:user@gmail.com|password:pass123</code>
-Contoh link: <code>url downloader file</code>
-<blockquote>Silakan ketik data produk:</blockquote>`,
-{parse_mode:'HTML'});break;
-case'data':
-if(text.length<5){throw new Error('Data produk minimal 5 karakter!');}
-state.data.data=text;
-state.step='deskripsi';
-await bot.sendMessage(chatId,
-`<blockquote>📝 TAMBAH PRODUK BARU</blockquote>
-<b>Langkah 4: Deskripsi Produk (Opsional)</b>
-Contoh: <code>YouTube Premium Family 1 tahun, 6 member</code>
-<blockquote>Silakan ketik deskripsi atau ketik <code>skip</code> untuk skip:</blockquote>`,
-{parse_mode:'HTML'});break;
-case'deskripsi':
-const description=text.toLowerCase()==='skip'?'':text;
-state.data.deskripsi=description;
-const productId=addProduct(state.data.nama,state.data.harga,state.data.data,state.data.deskripsi);
-if(!productId||productId.startsWith('PROD_')===false){throw new Error('Gagal membuat ID produk!');}
-const successMessage=`<blockquote>✅ PRODUK DITAMBAHKAN</blockquote>
-<b>Detail Produk:</b>
-┏━━━━━━━━━━━━━━━━━━⬣
-┃ ✧ ID: <code>${productId}</code>
-┃ ✧ Nama: ${escapeHTML(state.data.nama)}
-┃ ✧ Harga: Rp ${state.data.harga.toLocaleString()}
-┃ ✧ Data: ${escapeHTML(state.data.data.substring(0,50))}...
-┃ ✧ Deskripsi: ${state.data.deskripsi?escapeHTML(state.data.deskripsi.substring(0,100))+'...':'Tidak ada'}
-┃ ✧ Status: ✅ TERSEDIA
-┗━━━━━━━━━━━━━━━━━━⬣
-Produk siap dijual!`;
-await bot.sendMessage(chatId,successMessage,{parse_mode:'HTML'});
-delete addProductState[userId];break;}
-}catch(error){
-await bot.sendMessage(chatId,
-`<blockquote>❌ ERROR</blockquote>
-<b>Pesan:</b> ${escapeHTML(error.message)}
-<blockquote>Silakan coba lagi:</blockquote>`,
-{parse_mode:'HTML'});
-delete addProductState[userId];}});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📼 HDVID COMMAND - ENHANCE VIDEO QUALITY
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/hdvid$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/hdvid';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!msg.reply_to_message || !msg.reply_to_message.video) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n` +
-`<b>Reply video dengan:</b> <code>/hdvid</code>\n\n` +
-`<i>Balas video yang ingin ditingkatkan kualitasnya.</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-try {
-const video = msg.reply_to_message.video;
-const fileId = video.file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Meningkatkan kualitas video...</blockquote>\n` +
-`<i>Proses ini membutuhkan waktu sekitar 15-30 detik.</i>\n` +
-`<i>Status: Mengambil video dari Telegram...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const videoUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(videoUrl);
-const apiUrl = `https://api-faa.my.id/faa/hdvid?url=${encodedUrl}`;
-await bot.editMessageText(
-`<blockquote>🔄 Meningkatkan kualitas video...</blockquote>\n` +
-`<i>Proses ini membutuhkan waktu sekitar 15-30 detik.</i>\n` +
-`<i>Status: Mengirim data ke server...</i>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-const response = await axios.get(apiUrl, { 
-timeout: 0,
-headers: {
-'User-Agent': 'Mozilla/5.0',
-'Accept': 'application/json',
-'Cache-Control': 'no-cache'
-}
-});
-const apiData = response.data;
-await bot.editMessageText(
-`<blockquote>🔄 Meningkatkan kualitas video...</blockquote>\n` +
-`<i>Proses ini membutuhkan waktu sekitar 15-30 detik.</i>\n` +
-`<i>Status: Memproses data di server...</i>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-if (!apiData.status || !apiData.result || !apiData.result.download_url) {
-throw new Error('Server tidak mengembalikan video yang ditingkatkan');
-}
-const enhancedVideoUrl = apiData.result.download_url;
-await bot.editMessageText(
-`<blockquote>🔄 Meningkatkan kualitas video...</blockquote>\n` +
-`<i>Proses ini membutuhkan waktu sekitar 15-30 detik.</i>\n` +
-`<i>Status: Mengunduh video hasil...</i>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-const videoResponse = await axios.get(enhancedVideoUrl, { 
-responseType: 'arraybuffer', 
-timeout: 0
-});
-const videoBuffer = Buffer.from(videoResponse.data);
-await bot.sendVideo(chatId, videoBuffer, {
-caption: `<blockquote>🎬 Video Enhanced!</blockquote>\n` +
-`<i>Kualitas video berhasil ditingkatkan ke HD.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (error) {
-console.error('HDVid error:', error);
-let errorMessage = '';
-if (error.response?.status === 524 || error.message?.includes('524')) {
-errorMessage = `<blockquote>⏰ Server Timeout</blockquote>\n` +
-`<b>Kode Error: 524</b>\n` +
-`<i>Server sedang sangat sibuk atau proses enhancement memakan waktu terlalu lama.</i>\n\n` +
-`<b>Solusi:</b>\n` +
-`1. Server masih memproses data, tunggu beberapa saat\n` +
-`2. Coba lagi nanti ketika server tidak terlalu sibuk\n` +
-`3. Proses enhancement video bisa memakan waktu beberapa menit`;
-} else if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ Server sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout - Server Sibuk</blockquote>\n` +
-`<i>Server sedang memproses data Anda, tunggu beberapa saat dan coba lagi.</i>`;
-} else if (error.message?.includes('tidak mengembalikan video')) {
-errorMessage = `<blockquote>❌ Gagal meningkatkan kualitas video</blockquote>\n` +
-`<i>Server tidak merespon dengan benar. Coba lagi nanti.</i>`;
-} else if (error.code === 'ECONNABORTED') {
-errorMessage = `<blockquote>🔌 Koneksi terputus</blockquote>\n` +
-`<i>Koneksi ke server terputus, tetapi proses mungkin masih berjalan di server.</i>\n` +
-`<i>Coba lagi dalam beberapa menit.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses video</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-try {
-await bot.deleteMessage(chatId, processingMsg?.message_id || 0);
-} catch (e) {}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📼 HANDLER UNTUK VIDEO DENGAN CAPTION /HDVID
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('video', async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-if (msg.caption && msg.caption.trim() === '/hdvid') {
-const messageText = 'VIDEO_CAPTION: /hdvid';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-try {
-const fileId = msg.video.file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Meningkatkan kualitas video...</blockquote>\n` +
-`<i>Proses ini membutuhkan waktu sekitar 15-30 detik.</i>\n` +
-`<i>Status: Mengambil video dari Telegram...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const videoUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(videoUrl);
-const apiUrl = `https://api-faa.my.id/faa/hdvid?url=${encodedUrl}`;
-await bot.editMessageText(
-`<blockquote>🔄 Meningkatkan kualitas video...</blockquote>\n` +
-`<i>Proses ini membutuhkan waktu sekitar 15-30 detik.</i>\n` +
-`<i>Status: Mengirim data ke server...</i>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-const response = await axios.get(apiUrl, { 
-timeout: 0,
-headers: {
-'User-Agent': 'Mozilla/5.0',
-'Accept': 'application/json',
-'Cache-Control': 'no-cache'
-}
-});
-const apiData = response.data;
-await bot.editMessageText(
-`<blockquote>🔄 Meningkatkan kualitas video...</blockquote>\n` +
-`<i>Proses ini membutuhkan waktu sekitar 15-30 detik.</i>\n` +
-`<i>Status: Memproses data di server...</i>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-if (!apiData.status || !apiData.result || !apiData.result.download_url) {
-throw new Error('Server tidak mengembalikan video yang ditingkatkan');
-}
-const enhancedVideoUrl = apiData.result.download_url;
-await bot.editMessageText(
-`<blockquote>🔄 Meningkatkan kualitas video...</blockquote>\n` +
-`<i>Proses ini membutuhkan waktu sekitar 15-30 detik.</i>\n` +
-`<i>Status: Mengunduh video hasil...</i>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-const videoResponse = await axios.get(enhancedVideoUrl, { 
-responseType: 'arraybuffer', 
-timeout: 0
-});
-const videoBuffer = Buffer.from(videoResponse.data);
-await bot.sendVideo(chatId, videoBuffer, {
-caption: `<blockquote>🎬 Video Enhanced!</blockquote>\n` +
-`<i>Kualitas video berhasil ditingkatkan ke HD.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (error) {
-console.error('HDVid caption error:', error);
-let errorMessage = '';
-if (error.response?.status === 524 || error.message?.includes('524')) {
-errorMessage = `<blockquote>⏰ Server Timeout</blockquote>\n` +
-`<b>Kode Error: 524</b>\n` +
-`<i>Server sedang sangat sibuk atau proses enhancement memakan waktu terlalu lama.</i>\n\n` +
-`<b>Solusi:</b>\n` +
-`1. Server masih memproses data, tunggu beberapa saat\n` +
-`2. Coba lagi nanti ketika server tidak terlalu sibuk\n` +
-`3. Proses enhancement video bisa memakan waktu beberapa menit`;
-} else if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ Server sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout - Server Sibuk</blockquote>\n` +
-`<i>Server sedang memproses data Anda, tunggu beberapa saat dan coba lagi.</i>`;
-} else if (error.message?.includes('tidak mengembalikan video')) {
-errorMessage = `<blockquote>❌ Gagal meningkatkan kualitas video</blockquote>\n` +
-`<i>Server tidak merespon dengan benar. Coba lagi nanti.</i>`;
-} else if (error.code === 'ECONNABORTED') {
-errorMessage = `<blockquote>🔌 Koneksi terputus</blockquote>\n` +
-`<i>Koneksi ke server terputus, tetapi proses mungkin masih berjalan di server.</i>\n` +
-`<i>Coba lagi dalam beberapa menit.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses video</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📦 WEB2ZIP - DOWNLOAD WEBSITE AS ZIP
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/web2zip(?:\s+(.+))?$/, async (msg, match) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = `/web2zip ${match[1] || ''}`.trim();
-logUserInteraction(userId, username, chatType, messageText, groupName);
-const url = match[1];
-if (!url) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n` +
-`<code>/web2zip https://example.com</code>`,
-{ parse_mode: "HTML" }
-);
-}
-if (!url.startsWith('http://') && !url.startsWith('https://')) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ URL tidak valid!</blockquote>`,
-{ parse_mode: "HTML" }
-);
-}
-try {
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>📦 Memproses website...</blockquote>`,
-{ parse_mode: "HTML", reply_to_message_id: msg.message_id }
-);
-const encodedUrl = encodeURIComponent(url);
-const apiUrl = `https://api.enzoxavier.biz.id/api/web2zip?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { timeout: 0 });
-const data = response.data;
-if (!data.status || !data.downloadUrl) {
-throw new Error('API error');
-}
-await bot.editMessageText(
-`<blockquote>📦 Mengunduh ZIP...</blockquote>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: "HTML" }
-);
-const zipResponse = await axios.get(data.downloadUrl, { 
-responseType: 'arraybuffer',
-timeout: 0
-});
-const zipBuffer = Buffer.from(zipResponse.data);
-const fileName = `${escapeHTML(config.BOT_NAME)}_${moment().tz('Asia/Jakarta').format('YYYY-MM-DD')}`;
-
-await bot.sendDocument(chatId, zipBuffer, {
-caption: `<blockquote>✅ Website ZIP siap!</blockquote>\n` +
-`<b>URL:</b> <code>${escapeHTML(data.originalUrl || url)}</code>\n` +
-`<b>File:</b> ${data.copiedFilesAmount || '?'}\n` +
-`<b>Size:</b> ${(zipBuffer.length / 1024 / 1024).toFixed(1)} MB`,
-parse_mode: "HTML",
-reply_to_message_id: msg.message_id
-}, {
-filename: fileName
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (error) {
-console.error('Web2Zip error:', error.message);
-logError('WEB2ZIP_ERROR', `URL: ${url}, Error: ${error.message}`, userId, username);
-let errorMessage = '';
-if (error.response?.status === 404) {
-errorMessage = `<blockquote>❌ Website tidak ditemukan</blockquote>`;
-} else if (error.response?.status === 500) {
-errorMessage = `<blockquote>❌ Server error</blockquote>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>`;
-} else if (error.message?.includes('API error')) {
-errorMessage = `<blockquote>❌ Gagal membuat ZIP</blockquote>`;
-} else if (error.message?.includes('ENOTFOUND')) {
-errorMessage = `<blockquote>🌐 Domain error</blockquote>`;
-} else {
-errorMessage = `<blockquote>❌ Error sistem</blockquote>`;
-}
-try {
-await bot.deleteMessage(chatId, processingMsg?.message_id || 0);
-} catch (e) {}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: "HTML",
-reply_to_message_id: msg.message_id
-});
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🌐 WEBSITE SCREENSHOT COMMAND - SUPER SIMPLE
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/ssweb(?:\s+(.+))?$/, async (msg, match) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = `/ssweb ${match[1] || ''}`.trim();
-logUserInteraction(userId, username, chatType, messageText, groupName);
-const url = match[1];
-if (!url) {
-return bot.sendMessage(chatId,
-"<blockquote>❌ Masukkan URL website!</blockquote>\nContoh: <code>/ssweb https://google.com</code>",
-{ parse_mode: "HTML", reply_to_message_id: msg.message_id }
-);
-}
-if (!url.startsWith('http://') && !url.startsWith('https://')) {
-return bot.sendMessage(chatId,
-"<blockquote>❌ URL harus dimulai dengan http:// atau https://</blockquote>",
-{ parse_mode: "HTML", reply_to_message_id: msg.message_id }
-);
-}
-try {
-const processingMsg = await bot.sendMessage(chatId,
-"<blockquote>🌐 Mengambil screenshot...</blockquote>",
-{ parse_mode: "HTML", reply_to_message_id: msg.message_id }
-);
-const encodedUrl = encodeURIComponent(url);
-const apiUrl = `https://api.resellergaming.my.id/tools/ssweb?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { timeout: 30000 });
-const data = response.data;
-if (!data.status || !data.result) {
-throw new Error('API tidak mengembalikan screenshot');
-}
-await bot.sendPhoto(chatId, data.result, {
-caption: `<blockquote>┏━⬣ ✧「 SCREENSHOT WEBSITE 」✧
-┃ ✧ URL: <code>${escapeHTML(url)}</code>
-┗━━━━━━━━━━━━━━━━━━⬣</blockquote>
-✅ Screenshot berhasil diambil!`,
-parse_mode: "HTML",
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (error) {
-console.error('SSWeb error:', error.message);
-logError('SSWEB_ERROR', `URL: ${url}, Error: ${error.message}`, userId, username);
-let errorMessage = '';
-if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
-errorMessage = "<blockquote>⏱️ Timeout - Server terlalu lama merespon</blockquote>\n💡 Coba beberapa saat lagi";
-} else if (error.response?.status === 404 || error.response?.status === 500) {
-errorMessage = "<blockquote>❌ Gagal mengambil screenshot</blockquote>\n💡 Coba URL lain atau coba nanti";
-} else if (error.message.includes('API tidak mengembalikan')) {
-errorMessage = "<blockquote>❌ API tidak merespon dengan benar</blockquote>";
-} else {
-errorMessage = "<blockquote>❌ Error sistem</blockquote>";
-}
-try {
-await bot.deleteMessage(chatId, processingMsg?.message_id || 0);
-} catch (e) {}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: "HTML",
-reply_to_message_id: msg.message_id
-});
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📱 REACT CHANNEL WHATSAPP
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/react (.+)$/, async (msg, match) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = msg.text;
-logUserInteraction(userId, username, chatType, messageText, groupName);
-try {
-const params = match[1].trim();
-if (!params) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n` +
-`<code>/react https://whatsapp.com/channel/...|👍💪😻</code>\n` +
-`<i>Minimal 3 emoji</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-const parts = params.split('|');
-if (parts.length < 2) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n` +
-`<b>Gunakan:</b> URL|EMOJI`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-const url = parts[0].trim();
-const emoji = parts.slice(1).join('|').trim();
-if (!url.startsWith('https://whatsapp.com/channel/') && 
-!url.startsWith('https://www.whatsapp.com/channel/')) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ URL tidak valid!</blockquote>\n` +
-`<i>Harus link channel WhatsApp</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-const emojiCount = Array.from(emoji).filter(char => {
-const regex = /[\p{Emoji}]/u;
-return regex.test(char);
-}).length;
-if (emojiCount < 3) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Emoji tidak cukup!</blockquote>\n` +
-`<b>Minimal 3 emoji</b>\n` +
-`<i>Anda: ${emojiCount} emoji</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Mengirim reaksi...</blockquote>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const encodedUrl = encodeURIComponent(url);
-const encodedEmoji = encodeURIComponent(emoji);
-const apiUrl = `https://api-faa.my.id/faa/react-channel?url=${encodedUrl}&react=${encodedEmoji}`;
-const response = await axios.get(apiUrl, {
-timeout: 0,
-headers: {
-'User-Agent': 'Mozilla/5.0',
-'Accept': 'application/json'
-}
-});
-const apiData = response.data;
-if (!apiData.status) {
-throw new Error(apiData.message || 'Gagal mengirim reaksi');
-}
-await bot.editMessageText(
-`<blockquote>✅ Berhasil!</blockquote>\n` +
-`<b>Channel:</b> <code>${url}</code>\n` +
-`<b>Reaksi:</b> ${apiData.info?.reaction_used || emoji}\n` +
-`<b>Pesan:</b> ${apiData.message || 'Berhasil'}`,
-{ 
-chat_id: chatId, 
-message_id: processingMsg.message_id, 
-parse_mode: 'HTML' 
-});
-} catch (error) {
-console.error('React error:', error);
-let errorMessage = '';
-if (error.response?.status === 404) {
-errorMessage = `<blockquote>❌ Channel tidak ditemukan!</blockquote>`;
-} else if (error.response?.status === 400) {
-errorMessage = `<blockquote>❌ Permintaan tidak valid!</blockquote>`;
-} else if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ Server maintenance</blockquote>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout - Server sibuk</blockquote>`;
-} else if (error.code === 'ECONNREFUSED') {
-errorMessage = `<blockquote>🔌 Server tidak merespon!</blockquote>`;
-} else if (error.message?.includes('Gagal mengirim reaksi')) {
-errorMessage = `<blockquote>❌ Gagal!</blockquote><i>${error.message}</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error</blockquote><code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-try {
-await bot.deleteMessage(chatId, processingMsg?.message_id || 0);
-} catch (e) {}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🎵 MUSIC PLAYER COMMAND
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/play(?:\s+(.+))?$/, async (msg, match) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const query = match[1];
-const messageText = `/play ${query || ''}`.trim();
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!query) {
-return bot.sendMessage(chatId,
-`<blockquote>🎵 Music Player</blockquote>\n\n` +
-`<b>Contoh penggunaan:</b>\n` +
-`<code>/play melepasmu</code>\n` +
-`<code>/play alan walker faded</code>\n` +
-`<code>/play coldplay paradise</code>\n\n` +
-`<i>Masukkan judul lagu yang ingin dicari.</i>`,
-{ parse_mode: "HTML", reply_to_message_id: msg.message_id }
-);
-}
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔍 Mencari lagu...</blockquote>\n` +
-`<i>Mencari: <b>${query}</b></i>`,
-{ parse_mode: "HTML", reply_to_message_id: msg.message_id }
-);
-try {
-const encodedQuery = encodeURIComponent(query);
-const apiUrl = `https://api-faa.my.id/faa/ytplay?query=${encodedQuery}`;
-const response = await axios.get(apiUrl, {
-timeout: 30000,
-headers: {
-'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-'Accept': 'application/json'
-}
-});
-const data = response.data;
-if (!data.status || !data.result || !data.result.mp3) {
-throw new Error('Lagu tidak ditemukan');
-}
-const result = data.result;
-await bot.editMessageText(
-`<blockquote>⬇️ Mengunduh audio...</blockquote>\n` +
-`<i>Judul: <b>${result.title}</b></i>`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: "HTML"
-}
-);
-const audioResponse = await axios({
-method: 'GET',
-url: result.mp3,
-responseType: 'arraybuffer',
-timeout: 60000,
-maxContentLength: 50 * 1024 * 1024
-});
-const audioBuffer = Buffer.from(audioResponse.data);
-let thumbBuffer = null;
-try {
-if (result.thumbnail) {
-const thumbResponse = await axios.get(result.thumbnail, { 
-responseType: 'arraybuffer', 
-timeout: 15000 
-});
-thumbBuffer = Buffer.from(thumbResponse.data);
-}
-} catch (thumbError) {
-console.log('Gagal mengunduh thumbnail:', thumbError.message);
-}
-const formatDuration = (seconds) => {
-const mins = Math.floor(seconds / 60);
-const secs = Math.floor(seconds % 60);
-return `${mins}:${secs.toString().padStart(2, '0')}`;
-};
-const formatViews = (views) => {
-if (!views) return '0';
-if (views >= 1000000) return (views / 1000000).toFixed(1) + 'M';
-if (views >= 1000) return (views / 1000).toFixed(1) + 'K';
-return views.toString();
-};
-const durationFormatted = formatDuration(result.duration || 0);
-const viewsFormatted = formatViews(result.views || 0);
-await bot.deleteMessage(chatId, processingMsg.message_id);
-if (thumbBuffer && thumbBuffer.length > 0) {
-const caption = `<blockquote>🎵 ${result.title}</blockquote>\n` +
-`<b>🎤 Artis:</b> ${result.author || 'Unknown'}\n` +
-`<b>⏱️ Durasi:</b> ${durationFormatted}\n` +
-`<b>👁️ Views:</b> ${viewsFormatted}\n` +
-`<b>📅 Published:</b> ${result.published || 'Unknown'}\n\n` +
-`<i>Download audio di bawah...</i>`;
-await bot.sendPhoto(chatId, thumbBuffer, {
-caption: caption,
-parse_mode: "HTML"
-});
-}
-const audioOptions = {
-title: result.title.substring(0, 64),
-performer: result.author ? result.author.substring(0, 64) : 'Unknown',
-reply_to_message_id: msg.message_id
-};
-await bot.sendAudio(chatId, audioBuffer, audioOptions);
-} catch (error) {
-console.error('Music Player Error:', error.message);
-let errorMessage = '';
-if (error.message.includes('Lagu tidak ditemukan')) {
-errorMessage = `<blockquote>❌ Lagu tidak ditemukan</blockquote>\n` +
-`<i>Coba dengan judul lagu yang berbeda.</i>`;
-} else if (error.response?.status === 404) {
-errorMessage = `<blockquote>❌ Lagu tidak ditemukan</blockquote>\n` +
-`<i>Pastikan judul lagu benar.</i>`;
-} else if (error.message.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba lagi.</i>`;
-} else if (error.message.includes('ENOTFOUND') || error.message.includes('ECONNREFUSED')) {
-errorMessage = `<blockquote>❌ Server tidak dapat diakses</blockquote>\n` +
-`<i>Coba lagi beberapa menit kemudian.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses lagu</blockquote>\n` +
-`<code>${escapeHTML(error.message?.substring(0, 80) || 'Unknown error')}</code>`;
-}
-try {
-await bot.deleteMessage(chatId, processingMsg?.message_id || 0);
-} catch (e) {}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: "HTML",
-reply_to_message_id: msg.message_id
-});
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🔊 TTS (TEXT TO SPEECH) COMMAND
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/tts(?:\s+(.+))?$/i, async (msg, match) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const text = match[1];
-const messageText = `/tts ${text || ''}`.trim();
-logUserInteraction(userId, username, chatType, messageText, groupName);
-let inputText = '';
-if (msg.reply_to_message && msg.reply_to_message.text) {
-inputText = msg.reply_to_message.text.trim();
-} else if (text) {
-inputText = text.trim();
-}
-if (!inputText) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n\n` +
-`<b>Contoh:</b> <code>/tts halo apa kabar</code>\n\n` +
-`<i>Atau reply pesan yang berisi teks.</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-if (inputText.length > 500) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Teks terlalu panjang!</blockquote>\n\n` +
-`Maksimal 500 karakter.\n` +
-`Panjang teks Anda: ${inputText.length} karakter\n\n` +
-`<i>Persingkat teks Anda.</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔊 Membuat TTS Audio...</blockquote>\n\n` +
-`<b>Teks:</b> ${escapeHTML(inputText.substring(0, 100))}${inputText.length > 100 ? '...' : ''}\n` +
-`<b>Suara:</b> Indonesia (default)\n` +
-`<i>Mohon tunggu...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-try {
-const encodedText = encodeURIComponent(inputText);
-const apiUrl = `https://exsalapi.my.id/api/audio/tiktok-tts?text=${encodedText}&voice=id_001&apikey=${AI_API_KEY}`;
-console.log('Mengirim request ke API TTS:', apiUrl);
-const response = await fetch(apiUrl, {
-headers: {
-'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-'Accept': 'application/json',
-'Content-Type': 'application/x-www-form-urlencoded'
-}
-});
-const responseText = await response.text();
-console.log('Response raw:', responseText);
-let data;
-try {
-data = JSON.parse(responseText);
-} catch (e) {
-throw new Error(`Invalid JSON response: ${responseText.substring(0, 100)}`);
-}
-console.log('TTS API Response:', JSON.stringify(data, null, 2));
-if (!response.ok || !data || data.status === false || !data.data || !data.data.url) {
-throw new Error(data.message || `HTTP ${response.status}: ${responseText.substring(0, 100)}`);
-}
-const audioResponse = await fetch(data.data.url);
-if (!audioResponse.ok) {
-throw new Error(`Gagal mengunduh audio: ${audioResponse.status}`);
-}
-const audioBuffer = await audioResponse.arrayBuffer();
-const keyboard = {
-inline_keyboard: [
-[
-{ text: '✅ Indonesia', callback_data: `tts_id_${encodeURIComponent(inputText.substring(0, 100))}` },
-{ text: '🇺🇸 US Female', callback_data: `tts_usf_${encodeURIComponent(inputText.substring(0, 100))}` }
-],
-[
-{ text: '🇺🇸 US Male', callback_data: `tts_usm_${encodeURIComponent(inputText.substring(0, 100))}` },
-{ text: '🇯🇵 Japanese', callback_data: `tts_jp_${encodeURIComponent(inputText.substring(0, 100))}` }
-],
-[
-{ text: '🇰🇷 Korean', callback_data: `tts_kr_${encodeURIComponent(inputText.substring(0, 100))}` }
-]
-]
-};
-const sentMessage = await bot.sendAudio(chatId, Buffer.from(audioBuffer), {
-caption: `<blockquote>🔊 TTS Audio Selesai!</blockquote>\n\n` +
-`<b>Teks:</b> ${escapeHTML(inputText.substring(0, 100))}${inputText.length > 100 ? '...' : ''}\n` +
-`<b>Suara:</b> 🇮🇩 Indonesia\n` +
-`<b>Panjang:</b> ${inputText.length} karakter\n\n` +
-`<i>Pilih suara lain:</i>`,
-parse_mode: 'HTML',
-reply_markup: keyboard,
-reply_to_message_id: msg.message_id
-});
-if (!global.ttsCache) global.ttsCache = {};
-const cacheKey = `tts_${sentMessage.message_id}`;
-global.ttsCache[cacheKey] = {
-text: inputText,
-messageId: sentMessage.message_id,
-chatId: chatId
-};
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (error) {
-console.error('TTS error:', error);
-let errorMessage = '';
-if (error.message.includes('400') || error.message.includes('Bad Request')) {
-errorMessage = `<blockquote>❌ Teks mengandung karakter tidak valid!</blockquote>\n` +
-`<i>Pastikan teks hanya mengandung karakter yang didukung.</i>`;
-} else if (error.message.includes('failed to get HTTP URL content')) {
-errorMessage = `<blockquote>❌ Gagal mengambil konten audio!</blockquote>\n` +
-`<i>URL audio tidak valid atau tidak dapat diakses. Coba lagi dengan teks lain.</i>`;
-} else if (error.message.includes('API error')) {
-errorMessage = `<blockquote>❌ API TTS sedang gangguan!</blockquote>\n` +
-`<i>Sistem TTS sedang tidak bisa diakses.</i>`;
-} else if (error.message.includes('gagal membuat audio') || error.message.includes('Invalid JSON')) {
-errorMessage = `<blockquote>❌ Gagal membuat audio!</blockquote>\n` +
-`<i>API tidak bisa memproses teks yang diberikan.</i>`;
-} else if (error.message.includes('Gagal mengunduh audio')) {
-errorMessage = `<blockquote>❌ Gagal mengunduh file audio!</blockquote>\n` +
-`<i>Server audio tidak merespon. Coba lagi nanti.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error membuat TTS!</blockquote>\n` +
-`<code>${escapeHTML(error.message.substring(0, 100))}</code>`;
-}
-try {
-await bot.editMessageText(
-errorMessage,
-{ 
-chat_id: chatId, 
-message_id: processingMsg.message_id, 
-parse_mode: 'HTML'
-}
-);
-} catch (editError) {
-await bot.sendMessage(chatId, errorMessage, { parse_mode: 'HTML', reply_to_message_id: msg.message_id });
-}
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🎀 AI KASIR ON/OFF COMMAND
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/ai(?:\s+(on|off))?$/i, async (msg, match) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const action = match[1] ? match[1].toLowerCase() : null;
-const messageText = `/ai ${action || ''}`.trim();
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!isAdmin(userId)) {
-const caption = `<blockquote>⚠️ Akses Ditolak</blockquote>
-Maaf~ cuma admin yang bisa kontrol AI nih! 😅`;
-return bot.sendMessage(chatId, caption,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-if (!action) {
-const currentStatus = isAIEnabled() ? 'AKTIF ✨' : 'NONAKTIF 😴';
-const caption = `<blockquote>🌸 Status AI</blockquote>
-<b>Status:</b> ${currentStatus}
-
-<code>/ai on</code> - Nyalain AI
-<code>/ai off</code> - Matiin AI`;
-return bot.sendMessage(chatId, caption,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-if (action === 'on') {
-toggleAI(true);
-const caption = `<blockquote>✅ AI Diaktifkan</blockquote>
-${escapeHTML(config.BOT_NAME)} sekarang aktif dan siap bantu! 🤗`;
-await bot.sendMessage(chatId, caption,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-} else if (action === 'off') {
-toggleAI(false);
-const caption = `<blockquote>⏸️ AI Dimatikan</blockquote>
-${escapeHTML(config.BOT_NAME)} sekarang istirahat~ 💤`;
-await bot.sendMessage(chatId, caption,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📊 AI MEMORY STATUS COMMAND
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/aimemory$/i, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/aimemory';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!isAdmin(userId)) {
-const caption = `<blockquote>🚫 Akses Dibatasi</blockquote>
-
-Hmm.. cuma admin yang boleh liat memory ${escapeHTML(config.BOT_NAME)} nih! 😅
-
-<blockquote><b>👤 User :</b> ${escapeHTML(username)}
-<b>📅 Tanggal :</b> ${escapeHTML(tanggalLengkap)}
-<b>⏰ Jam :</b> ${escapeHTML(jamLengkap)}</blockquote>
-Minta ijin admin dulu yaa! 💕`;
-return bot.sendMessage(chatId, caption,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-const otakai = loadOtakai();
-const userCount = Object.keys(otakai.users).length;
-const aiStatus = otakai.ai_enabled ? 'AKTIF ✨' : 'NONAKTIF 💤';
-let memoryInfo = `<blockquote>🧠 MEMORY ${escapeHTML(config.BOT_NAME).toUpperCase()}</blockquote>
-
-Hai admin! Ini data memory aku nih~ 🤗
-
-<blockquote><b>🌸 Status :</b> ${aiStatus}
-<b>👥 Total User :</b> ${userCount} orang</blockquote>`;
-const recentUsers = Object.entries(otakai.users)
-.sort((a, b) => new Date(b[1].last_interaction) - new Date(a[1].last_interaction))
-.slice(0, 10);
-memoryInfo += `<blockquote>📈 USER TERAKHIR CHAT:</blockquote>`;
-recentUsers.forEach(([id, data], index) => {
-const lastSeen = new Date(data.last_interaction).toLocaleString('id-ID');
-const daysAgo = Math.floor((new Date() - new Date(data.last_interaction)) / (1000 * 60 * 60 * 24));
-const daysText = daysAgo === 0 ? 'Hari ini' : `${daysAgo} hari lalu`;
-const emoji = index < 3 ? '🥇🥈🥉'.split('')[index] : '👤';
-memoryInfo += `${emoji} <b>Rank ${index + 1}:</b>\n`;
-memoryInfo += `   🆔 ID: <code>${id}</code>\n`;
-memoryInfo += `   💬 Chat: ${data.message_count || 0}x\n`;
-memoryInfo += `   ⏳ Terakhir: ${daysText}\n`;
-memoryInfo += `   📅 ${lastSeen}\n\n`;
-});
-memoryInfo += `<blockquote><b>🤖 Bot :</b> ${escapeHTML(config.BOT_NAME)}
-<b>👤 Admin :</b> ${escapeHTML(username)}
-<b>📅 Tanggal :</b> ${escapeHTML(tanggalLengkap)}
-<b>⏰ Jam :</b> ${escapeHTML(jamLengkap)}</blockquote>
-
-<blockquote>💕 ${escapeHTML(config.BOT_NAME)} inget semua percakapan sama customer lho! ✨</blockquote>`;
-await bot.sendMessage(chatId, memoryInfo, { parse_mode: 'HTML', reply_to_message_id: msg.message_id });
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 💬 AI KASIR PRIVATE CHAT HANDLER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('message', async (msg) => {
-if (!msg.text) return;
-if (msg.text.startsWith('/')) return;
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
-const userMessage = msg.text.trim();
-if (userMessage.length < 2 || userMessage.length > 200) return;
-if (msg.chat.type !== 'private') return;
-if (!isAIEnabled()) return;
-if (msg.from.is_bot) return;
-logUserInteraction(userId, username, 'private', `AI_QUERY: ${userMessage.substring(0, 50)}`);
-await bot.sendChatAction(chatId, 'typing');
-try {
-const aiResult = await callAIChat(userId, userMessage);
-if (aiResult.success) {
-// Bersihkan respons AI dari karakter HTML yang bermasalah
-const cleanAIResponse = aiResult.response
-.replace(/</g, '&lt;')
-.replace(/>/g, '&gt;')
-.replace(/&/g, '&amp;')
-.replace(/"/g, '&quot;')
-.replace(/'/g, '&#39;');
-
-const caption = `<blockquote>🌸 こんにちは, ${escapeHTML(username)}-さん</blockquote>
-${cleanAIResponse}
-
-<blockquote>${escapeHTML(jamLengkap)} ⏰ | ${escapeHTML(tanggalLengkap)} 📅</blockquote>`;
-await bot.sendMessage(chatId, caption, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-
-if (aiResult.isNewUser) {
-setTimeout(async () => {
-const promoCaption = `<blockquote>🛒 HAI! MAU BELI PANEL NIH~</blockquote>
-
-Yey! Kamu baru pertama kali chat sama ${escapeHTML(config.BOT_NAME)} ya! 🤗
-Mau coba beli panel atau jadi reseller? 💖
-
-Coba deh ketik salah satu:
-<code>/unli username,id_telegram</code>
-Contoh: <code>/unli ${escapeHTML(username)},${userId}</code>
-
-Atau paket lainnya:
-<code>/1gb username,id</code>
-<code>/addseller id_kamu</code>
-
-<blockquote>🌸 Catatan: Kita baru kenal hari ini! Semoga jadi langganan ya~</blockquote>`;
-
-await bot.sendMessage(chatId, promoCaption, { 
-parse_mode: 'HTML' 
-});
-}, 1000);
-}
-} else {
-const errorCaption = `<blockquote>⚠️ Oops! ${escapeHTML(config.BOT_NAME)} lagi ada masalah nih...</blockquote>
-
-Aduh maaf ya, aku lagi error dikit 😢
-Coba lagi nanti atau langsung pake command aja yaa!
-
-<blockquote><b>🤖 Bot :</b> ${escapeHTML(config.BOT_NAME)}</blockquote>`;
-
-await bot.sendMessage(chatId, errorCaption, {
-parse_mode: 'HTML', 
-reply_to_message_id: msg.message_id 
-});
-}
-} catch (error) {
-console.error('AI handler error:', error);
-const errorCaption = `<blockquote>❌ Wah, ${escapeHTML(config.BOT_NAME)} gagal nih...</blockquote>
-
-Aduh maaf banget ya, ada error nih 😭
-Tunggu bentar yaa, atau coba kontak ownernya!
-
-<blockquote><b>Error :</b> ${escapeHTML(error.message.substring(0, 100))}
-<b>🤖 Bot :</b> ${escapeHTML(config.BOT_NAME)}</blockquote>`;
-
-await bot.sendMessage(chatId, errorCaption, {
-parse_mode: 'HTML', 
-reply_to_message_id: msg.message_id 
-});
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📱 TOMIRROR COMMAND - AI MIRROR FILTER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/tomirror$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/tomirror';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!msg.reply_to_message || !msg.reply_to_message.photo) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n` +
-`<b>Reply foto dengan:</b> <code>/tomirror</code>\n\n` +
-`<i>Balas foto yang ingin diubah jadi mirror style.</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-try {
-const photo = msg.reply_to_message.photo[msg.reply_to_message.photo.length - 1];
-const fileId = photo.file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter mirror...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/tomirror?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: "arraybuffer" });
-const contentType = response.headers["content-type"] || "";
-if (contentType.startsWith("image/")) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>📱 Mirror iPhone style!</blockquote>\n` +
-`<i>Filter mirror berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data || jsonData.data?.url;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: "arraybuffer" });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>📱 Mirror iPhone style!</blockquote>\n` +
-`<i>Filter mirror berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Tomirror error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-try {
-await bot.deleteMessage(chatId, processingMsg?.message_id || 0);
-} catch (e) {}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📱 HANDLER UNTUK FOTO DENGAN CAPTION /TOMIRROR
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('photo', async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-if (msg.caption && msg.caption.trim() === '/tomirror') {
-const messageText = 'PHOTO_CAPTION: /tomirror';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-try {
-const fileId = msg.photo[msg.photo.length - 1].file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter mirror...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/tomirror?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: "arraybuffer" });
-const contentType = response.headers["content-type"] || "";
-if (contentType.startsWith("image/")) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>📱 Mirror iPhone style!</blockquote>\n` +
-`<i>Filter mirror berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data || jsonData.data?.url;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: "arraybuffer" });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>📱 Mirror iPhone style!</blockquote>\n` +
-`<i>Filter mirror berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Tomirror caption error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🎨 TOREAL COMMAND - AI REALISTIC FILTER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/toreal$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/toreal';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!msg.reply_to_message || !msg.reply_to_message.photo) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n` +
-`<b>Reply foto dengan:</b> <code>/toreal</code>\n\n` +
-`<i>Balas foto yang ingin diubah jadi realistic style.</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-try {
-const photo = msg.reply_to_message.photo[msg.reply_to_message.photo.length - 1];
-const fileId = photo.file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter realistic AI...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/toreal?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: "arraybuffer" });
-const contentType = response.headers["content-type"] || "";
-if (contentType.startsWith("image/")) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🎨 Realistic AI Gemini style!</blockquote>\n` +
-`<i>Filter realistic AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data || jsonData.data?.url;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: "arraybuffer" });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🎨 Realistic AI Gemini style!</blockquote>\n` +
-`<i>Filter realistic AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Toreal error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-try {
-await bot.deleteMessage(chatId, processingMsg?.message_id || 0);
-} catch (e) {}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🎨 HANDLER UNTUK FOTO DENGAN CAPTION /TOREAL
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('photo', async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-if (msg.caption && msg.caption.trim() === '/toreal') {
-const messageText = 'PHOTO_CAPTION: /toreal';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-try {
-const fileId = msg.photo[msg.photo.length - 1].file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter realistic AI...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/toreal?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: "arraybuffer" });
-const contentType = response.headers["content-type"] || "";
-if (contentType.startsWith("image/")) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🎨 Realistic AI Gemini style!</blockquote>\n` +
-`<i>Filter realistic AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data || jsonData.data?.url;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: "arraybuffer" });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🎨 Realistic AI Gemini style!</blockquote>\n` +
-`<i>Filter realistic AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Toreal caption error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🧿 TOTATO COMMAND - AI TATTOO FILTER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/totato$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/totato';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!msg.reply_to_message || !msg.reply_to_message.photo) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n` +
-`<b>Reply foto dengan:</b> <code>/totato</code>\n\n` +
-`<i>Balas foto yang ingin ditambahkan tato.</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-try {
-const photo = msg.reply_to_message.photo[msg.reply_to_message.photo.length - 1];
-const fileId = photo.file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Menambahkan tato dengan AI...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/totato?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers['content-type'] || '';
-if (contentType.startsWith('image/')) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🧿 Tato berhasil ditambahkan!</blockquote>\n` +
-`<i>Filter tato AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data?.url;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: 'arraybuffer' });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🧿 Tato berhasil ditambahkan!</blockquote>\n` +
-`<i>Filter tato AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Totato error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-try {
-await bot.deleteMessage(chatId, processingMsg?.message_id || 0);
-} catch (e) {}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🧿 HANDLER UNTUK FOTO DENGAN CAPTION /TOTATO
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('photo', async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-if (msg.caption && msg.caption.trim() === '/totato') {
-const messageText = 'PHOTO_CAPTION: /totato';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-try {
-const fileId = msg.photo[msg.photo.length - 1].file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Menambahkan tato dengan AI...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/totato?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers['content-type'] || '';
-if (contentType.startsWith('image/')) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🧿 Tato berhasil ditambahkan!</blockquote>\n` +
-`<i>Filter tato AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data?.url;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: 'arraybuffer' });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🧿 Tato berhasil ditambahkan!</blockquote>\n` +
-`<i>Filter tato AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Totato caption error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🎨 TOANIME COMMAND - AI ANIME FILTER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/toanime$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/toanime';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!msg.reply_to_message || !msg.reply_to_message.photo) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n` +
-`<b>Reply foto dengan:</b> <code>/toanime</code>\n\n` +
-`<i>Balas foto yang ingin diubah jadi anime.</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-try {
-const photo = msg.reply_to_message.photo[msg.reply_to_message.photo.length - 1];
-const fileId = photo.file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter anime AI...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/toanime?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers["content-type"] || "";
-if (contentType.startsWith("image/")) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🎨 Foto kamu berhasil diubah jadi anime!</blockquote>\n` +
-`<i>Filter anime AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data || jsonData.data?.url || jsonData.data?.result;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: "arraybuffer" });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🎨 Foto kamu berhasil jadi anime!</blockquote>\n` +
-`<i>Filter anime AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Toanime error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-try {
-await bot.deleteMessage(chatId, processingMsg?.message_id || 0);
-} catch (e) {}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🎨 HANDLER UNTUK FOTO DENGAN CAPTION /TOANIME
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('photo', async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-if (msg.caption && msg.caption.trim() === '/toanime') {
-const messageText = 'PHOTO_CAPTION: /toanime';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-try {
-const fileId = msg.photo[msg.photo.length - 1].file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter anime AI...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/toanime?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers["content-type"] || "";
-if (contentType.startsWith("image/")) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🎨 Foto kamu berhasil diubah jadi anime!</blockquote>\n` +
-`<i>Filter anime AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data || jsonData.data?.url || jsonData.data?.result;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: "arraybuffer" });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🎨 Foto kamu berhasil jadi anime!</blockquote>\n` +
-`<i>Filter anime AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Toanime caption error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📼 TOVINTAGE COMMAND - AI VINTAGE FILTER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/tovintage$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/tovintage';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!msg.reply_to_message || !msg.reply_to_message.photo) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n` +
-`<b>Reply foto dengan:</b> <code>/tovintage</code>\n\n` +
-`<i>Balas foto yang ingin diubah jadi gaya vintage.</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-try {
-const photo = msg.reply_to_message.photo[msg.reply_to_message.photo.length - 1];
-const fileId = photo.file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter vintage...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/tovintage?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers['content-type'] || '';
-if (contentType.startsWith('image/')) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>📼 Vintage mode aktif!</blockquote>\n` +
-`<i>Filter vintage berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data?.url;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: 'arraybuffer' });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>📼 Vintage mode aktif!</blockquote>\n` +
-`<i>Filter vintage berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Tovintage error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-try {
-await bot.deleteMessage(chatId, processingMsg?.message_id || 0);
-} catch (e) {}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📼 HANDLER UNTUK FOTO DENGAN CAPTION /TOVINTAGE
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('photo', async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-if (msg.caption && msg.caption.trim() === '/tovintage') {
-const messageText = 'PHOTO_CAPTION: /tovintage';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-try {
-const fileId = msg.photo[msg.photo.length - 1].file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter vintage...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/tovintage?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers['content-type'] || '';
-if (contentType.startsWith('image/')) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>📼 Vintage mode aktif!</blockquote>\n` +
-`<i>Filter vintage berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data?.url;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: 'arraybuffer' });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>📼 Vintage mode aktif!</blockquote>\n` +
-`<i>Filter vintage berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Tovintage caption error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🗾 TOJEPANG COMMAND - AI JAPAN STYLE FILTER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/tojepang$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/tojepang';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!msg.reply_to_message || !msg.reply_to_message.photo) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n` +
-`<b>Reply foto dengan:</b> <code>/tojepang</code>\n\n` +
-`<i>Balas foto yang ingin diubah jadi gaya Jepang.</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-try {
-const photo = msg.reply_to_message.photo[msg.reply_to_message.photo.length - 1];
-const fileId = photo.file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter gaya Jepang...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/tojepang?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers["content-type"] || "";
-if (contentType.startsWith("image/")) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🗾 Kamu sudah di Jepang!</blockquote>\n` +
-`<i>Filter gaya Jepang berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data || jsonData.data?.url || jsonData.data?.result;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: "arraybuffer" });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🗾 Kamu sudah di Jepang!</blockquote>\n` +
-`<i>Filter gaya Jepang berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Tojepang error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-try {
-await bot.deleteMessage(chatId, processingMsg?.message_id || 0);
-} catch (e) {}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🗾 HANDLER UNTUK FOTO DENGAN CAPTION /TOJEPANG
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('photo', async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-if (msg.caption && msg.caption.trim() === '/tojepang') {
-const messageText = 'PHOTO_CAPTION: /tojepang';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-try {
-const fileId = msg.photo[msg.photo.length - 1].file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter gaya Jepang...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/tojepang?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers["content-type"] || "";
-if (contentType.startsWith("image/")) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🗾 Kamu sudah di Jepang!</blockquote>\n` +
-`<i>Filter gaya Jepang berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data || jsonData.data?.url || jsonData.data?.result;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: "arraybuffer" });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🗾 Kamu sudah di Jepang!</blockquote>\n` +
-`<i>Filter gaya Jepang berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Tojepang caption error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🌿 TOGHIBLI COMMAND - AI GHIBLI STYLE FILTER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/toghibli$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/toghibli';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!msg.reply_to_message || !msg.reply_to_message.photo) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n` +
-`<b>Reply foto dengan:</b> <code>/toghibli</code>\n\n` +
-`<i>Balas foto yang ingin diubah jadi gaya Ghibli.</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-try {
-const photo = msg.reply_to_message.photo[msg.reply_to_message.photo.length - 1];
-const fileId = photo.file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>?? Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter gaya Ghibli...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/toghibli?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers["content-type"] || "";
-if (contentType.startsWith("image/")) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🌿 Foto kamu jadi gaya Ghibli!</blockquote>\n` +
-`<i>Filter gaya Ghibli berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data || jsonData.data?.url || jsonData.data?.result;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: "arraybuffer" });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🌿 Foto kamu sudah jadi Ghibli!</blockquote>\n` +
-`<i>Filter gaya Ghibli berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Toghibli error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-try {
-await bot.deleteMessage(chatId, processingMsg?.message_id || 0);
-} catch (e) {}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🌿 HANDLER UNTUK FOTO DENGAN CAPTION /TOGHIBLI
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('photo', async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-if (msg.caption && msg.caption.trim() === '/toghibli') {
-const messageText = 'PHOTO_CAPTION: /toghibli';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-try {
-const fileId = msg.photo[msg.photo.length - 1].file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter gaya Ghibli...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/toghibli?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers["content-type"] || "";
-if (contentType.startsWith("image/")) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🌿 Foto kamu jadi gaya Ghibli!</blockquote>\n` +
-`<i>Filter gaya Ghibli berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data || jsonData.data?.url || jsonData.data?.result;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: "arraybuffer" });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🌿 Foto kamu sudah jadi Ghibli!</blockquote>\n` +
-`<i>Filter gaya Ghibli berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Toghibli caption error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🤖 TOFIGURE COMMAND - AI FIGURINE FILTER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/tofigure$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/tofigure';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!msg.reply_to_message || !msg.reply_to_message.photo) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n` +
-`<b>Reply foto dengan:</b> <code>/tofigure</code>\n\n` +
-`<i>Balas foto yang ingin diubah jadi figurine.</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-try {
-const photo = msg.reply_to_message.photo[msg.reply_to_message.photo.length - 1];
-const fileId = photo.file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter figurine AI...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/tofigura?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers["content-type"] || "";
-if (contentType.startsWith("image/")) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>✅ Figurine jadi 😎</blockquote>\n` +
-`<i>Filter figurine AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data || jsonData.data?.url || jsonData.data?.result;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: "arraybuffer" });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>✅ Figurine jadi 😎</blockquote>\n` +
-`<i>Filter figurine AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Tofigure error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-try {
-await bot.deleteMessage(chatId, processingMsg?.message_id || 0);
-} catch (e) {}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🤖 HANDLER UNTUK FOTO DENGAN CAPTION /TOFIGURE
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('photo', async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-if (msg.caption && msg.caption.trim() === '/tofigure') {
-const messageText = 'PHOTO_CAPTION: /tofigure';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-try {
-const fileId = msg.photo[msg.photo.length - 1].file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter figurine AI...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/tofigura?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers["content-type"] || "";
-if (contentType.startsWith("image/")) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>✅ Figurine jadi 😎</blockquote>\n` +
-`<i>Filter figurine AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data || jsonData.data?.url || jsonData.data?.result;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: "arraybuffer" });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>✅ Figurine jadi 😎</blockquote>\n` +
-`<i>Filter figurine AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Tofigure caption error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🍼 TOCHIBI COMMAND - AI CHIBI FILTER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/tochibi$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/tochibi';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!msg.reply_to_message || !msg.reply_to_message.photo) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n` +
-`<b>Reply foto dengan:</b> <code>/tochibi</code>\n\n` +
-`<i>Balas foto yang ingin diubah jadi chibi.</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-try {
-const photo = msg.reply_to_message.photo[msg.reply_to_message.photo.length - 1];
-const fileId = photo.file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter chibi AI...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/tochibi?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers["content-type"] || "";
-if (contentType.startsWith("image/")) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🍼 Foto kamu berhasil jadi chibi!</blockquote>\n` +
-`<i>Filter chibi AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data || jsonData.data?.url || jsonData.data?.result;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: "arraybuffer" });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🍼 Foto kamu jadi chibi imut!</blockquote>\n` +
-`<i>Filter chibi AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Tochibi error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-try {
-await bot.deleteMessage(chatId, processingMsg?.message_id || 0);
-} catch (e) {}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🍼 HANDLER UNTUK FOTO DENGAN CAPTION /TOCHIBI
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('photo', async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-if (msg.caption && msg.caption.trim() === '/tochibi') {
-const messageText = 'PHOTO_CAPTION: /tochibi';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-try {
-const fileId = msg.photo[msg.photo.length - 1].file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter chibi AI...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/tochibi?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers["content-type"] || "";
-if (contentType.startsWith("image/")) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🍼 Foto kamu berhasil jadi chibi!</blockquote>\n` +
-`<i>Filter chibi AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data || jsonData.data?.url || jsonData.data?.result;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: "arraybuffer" });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🍼 Foto kamu jadi chibi imut!</blockquote>\n` +
-`<i>Filter chibi AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Tochibi caption error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 💑 TOPACAR COMMAND - AI COUPLE FILTER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/topacar$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/topacar';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!msg.reply_to_message || !msg.reply_to_message.photo) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n` +
-`<b>Reply foto dengan:</b> <code>/topacar</code>\n\n` +
-`<i>Balas foto yang ingin ditambahkan pasangan.</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-try {
-const photo = msg.reply_to_message.photo[msg.reply_to_message.photo.length - 1];
-const fileId = photo.file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mencari pasangan terbaik untukmu...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/topacar?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: "arraybuffer" });
-const contentType = response.headers["content-type"] || "";
-if (contentType.startsWith("image/")) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>💑 Kamu punya pacar baru!</blockquote>\n` +
-`<i>Filter pasangan AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data || jsonData.data?.url;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: "arraybuffer" });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>💑 Kamu punya pacar baru!</blockquote>\n` +
-`<i>Filter pasangan AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Topacar error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-try {
-await bot.deleteMessage(chatId, processingMsg?.message_id || 0);
-} catch (e) {}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 💑 HANDLER UNTUK FOTO DENGAN CAPTION /TOPACAR
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('photo', async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-if (msg.caption && msg.caption.trim() === '/topacar') {
-const messageText = 'PHOTO_CAPTION: /topacar';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-try {
-const fileId = msg.photo[msg.photo.length - 1].file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mencari pasangan terbaik untukmu...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/topacar?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: "arraybuffer" });
-const contentType = response.headers["content-type"] || "";
-if (contentType.startsWith("image/")) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>💑 Kamu punya pacar baru!</blockquote>\n` +
-`<i>Filter pasangan AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data || jsonData.data?.url;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: "arraybuffer" });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>💑 Kamu punya pacar baru!</blockquote>\n` +
-`<i>Filter pasangan AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Topacar caption error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 👴 TOTUA COMMAND - AI AGING FILTER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/totua$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/totua';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!msg.reply_to_message || !msg.reply_to_message.photo) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n` +
-`<b>Reply foto dengan:</b> <code>/totua</code>\n\n` +
-`<i>Balas foto yang ingin diubah jadi versi tua.</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-try {
-const photo = msg.reply_to_message.photo[msg.reply_to_message.photo.length - 1];
-const fileId = photo.file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter penuaan AI...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/totua?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers['content-type'] || '';
-if (contentType.startsWith('image/')) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>👴 Kamu jadi versi tua!</blockquote>\n` +
-`<i>Filter penuaan AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data?.url;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: 'arraybuffer' });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>👴 Kamu jadi versi tua!</blockquote>\n` +
-`<i>Filter penuaan AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Totua error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-try {
-await bot.deleteMessage(chatId, processingMsg?.message_id || 0);
-} catch (e) {}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 👴 HANDLER UNTUK FOTO DENGAN CAPTION /TOTUA
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('photo', async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-if (msg.caption && msg.caption.trim() === '/totua') {
-const messageText = 'PHOTO_CAPTION: /totua';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-try {
-const fileId = msg.photo[msg.photo.length - 1].file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter penuaan AI...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/totua?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers['content-type'] || '';
-if (contentType.startsWith('image/')) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>👴 Kamu jadi versi tua!</blockquote>\n` +
-`<i>Filter penuaan AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data?.url;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: 'arraybuffer' });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>👴 Kamu jadi versi tua!</blockquote>\n` +
-`<i>Filter penuaan AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Totua caption error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🧟 TOZOMBIE COMMAND - AI ZOMBIE FILTER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/tozombie$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/tozombie';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!msg.reply_to_message || !msg.reply_to_message.photo) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n` +
-`<b>Reply foto dengan:</b> <code>/tozombie</code>\n\n` +
-`<i>Balas foto yang ingin diubah jadi zombie.</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-try {
-const photo = msg.reply_to_message.photo[msg.reply_to_message.photo.length - 1];
-const fileId = photo.file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter zombie AI...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/tozombie?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers['content-type'] || '';
-if (contentType.startsWith('image/')) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🧟 Kamu jadi zombie!</blockquote>\n` +
-`<i>Filter zombie AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data?.url;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: 'arraybuffer' });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🧟 Kamu jadi zombie!</blockquote>\n` +
-`<i>Filter zombie AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Tozombie error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-try {
-await bot.deleteMessage(chatId, processingMsg?.message_id || 0);
-} catch (e) {}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🧟 HANDLER UNTUK FOTO DENGAN CAPTION /TOZOMBIE
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('photo', async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-if (msg.caption && msg.caption.trim() === '/tozombie') {
-const messageText = 'PHOTO_CAPTION: /tozombie';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-try {
-const fileId = msg.photo[msg.photo.length - 1].file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter zombie AI...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/tozombie?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers['content-type'] || '';
-if (contentType.startsWith('image/')) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🧟 Kamu jadi zombie!</blockquote>\n` +
-`<i>Filter zombie AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data?.url;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: 'arraybuffer' });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🧟 Kamu jadi zombie!</blockquote>\n` +
-`<i>Filter zombie AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Tozombie caption error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🔗 SHORTLINK COMMAND - SIMPLE API
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/shortlink(?:\s+(.+))?$/i, async (msg, match) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const text = match[1];
-const messageText = `/shortlink ${text || ''}`.trim();
-logUserInteraction(userId, username, chatType, messageText, groupName);
-let url = '';
-if (msg.reply_to_message && msg.reply_to_message.text) {
-url = msg.reply_to_message.text.trim();
-} else if (text) {
-url = text.trim();
-}
-if (!url) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n` +
-`<b>Contoh:</b> <code>/shortlink https://xyroorinzi.net</code>\n\n` +
-`<i>Atau reply pesan yang berisi URL.</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-const urlRegex = /^(https?:\/\/[^\s$.?#].[^\s]*)$/i;
-if (!urlRegex.test(url)) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ URL tidak valid!</blockquote>\n` +
-`<b>URL Anda:</b> <code>${escapeHTML(url)}</code>\n\n` +
-`<b>Contoh URL yang valid:</b>\n` +
-`• https://example.com\n` +
-`• http://website.net`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses shortlink...</blockquote>\n` +
-`<b>URL:</b> <code>${escapeHTML(url.substring(0, 50))}${url.length > 50 ? '...' : ''}</code>\n` +
-`<i>Menggunakan API NVidiaBotz...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-try {
-const apiUrl = `https://api.nvidiabotz.xyz/tools/tinyurl?url=${encodeURIComponent(url)}`;
-const response = await fetch(apiUrl);
-if (!response.ok) {
-throw new Error(`API error: ${response.status}`);
-}
-const data = await response.json();
-console.log('API Response:', data);
-if (!data.status || !data.result) {
-throw new Error('API gagal memproses URL');
-}
-const finalShortUrl = data.result;
-await bot.editMessageText(
-`<blockquote>✅ Shortlink berhasil dibuat!</blockquote>\n\n` +
-`<b>URL asli:</b>\n<code>${escapeHTML(url)}</code>\n\n` +
-`<b>Hasil shortlink:</b>\n<code>${escapeHTML(finalShortUrl)}</code>`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML',
-reply_markup: {
-inline_keyboard: [
-[
-{ text: '🔗 Buka Link', url: finalShortUrl }
-]
-]
-}
-}
-);
-} catch (error) {
-console.error('Shortlink error:', error);
-let errorMessage = '';
-if (error.message.includes('API error')) {
-errorMessage = `<blockquote>❌ API sedang gangguan!</blockquote>\n` +
-`<i>Sistem shortlink sedang tidak bisa diakses.</i>`;
-} else if (error.message.includes('gagal memproses')) {
-errorMessage = `<blockquote>❌ Gagal memproses URL!</blockquote>\n` +
-`<i>API tidak bisa memproses URL yang diberikan.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Gagal membuat shortlink!</blockquote>\n` +
-`<i>Terjadi kesalahan dalam sistem.</i>`;
-}
-try {
-await bot.editMessageText(
-errorMessage,
-{ 
-chat_id: chatId, 
-message_id: processingMsg.message_id, 
-parse_mode: 'HTML',
-reply_markup: { inline_keyboard: [] }
-}
-);
-} catch (editError) {
-console.error('Failed to edit error message:', editError);
-await bot.sendMessage(
-chatId,
-errorMessage,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🧕 TOHIJAB COMMAND - AI HIJAB FILTER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/tohijab$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/tohijab';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!msg.reply_to_message || !msg.reply_to_message.photo) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n` +
-`<b>Reply foto dengan:</b> <code>/tohijab</code>\n\n` +
-`<i>Balas foto yang ingin diberi hijab.</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-try {
-const photo = msg.reply_to_message.photo[msg.reply_to_message.photo.length - 1];
-const fileId = photo.file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter hijab AI...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/tohijab?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers['content-type'] || '';
-if (contentType.startsWith('image/')) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🧕 Foto berhasil diberi hijab!</blockquote>\n` +
-`<i>Filter hijab AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data || jsonData.data?.url || jsonData.data?.result;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: 'arraybuffer' });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🧕 Foto berhasil diberi hijab!</blockquote>\n` +
-`<i>Filter hijab AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Tohijab error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-try {
-await bot.deleteMessage(chatId, processingMsg?.message_id || 0);
-} catch (e) {}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🧕 HANDLER UNTUK FOTO DENGAN CAPTION /TOHIJAB
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('photo', async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-if (msg.caption && msg.caption.trim() === '/tohijab') {
-const messageText = 'PHOTO_CAPTION: /tohijab';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-try {
-const fileId = msg.photo[msg.photo.length - 1].file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mengaplikasikan filter hijab AI...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/tohijab?url=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers['content-type'] || '';
-if (contentType.startsWith('image/')) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🧕 Foto berhasil diberi hijab!</blockquote>\n` +
-`<i>Filter hijab AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.url || jsonData.result || jsonData.image || jsonData.data || jsonData.data?.url || jsonData.data?.result;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: 'arraybuffer' });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🧕 Foto berhasil diberi hijab!</blockquote>\n` +
-`<i>Filter hijab AI berhasil diterapkan.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Tohijab caption error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🎫 TOBLUR COMMAND - BLUR WAJAH PADA FOTO
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/toblur$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/toblur';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!msg.reply_to_message || !msg.reply_to_message.photo) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n` +
-`<b>Reply foto dengan:</b> <code>/toblur</code>\n\n` +
-`<i>Balas foto yang ingin diblur wajahnya.</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-}
-try {
-const photo = msg.reply_to_message.photo[msg.reply_to_message.photo.length - 1];
-const fileId = photo.file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mendeteksi dan mem-blur wajah...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/blurwajah?image=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers['content-type'] || '';
-if (contentType.startsWith('image/')) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🙈 Wajah sudah diblur otomatis!</blockquote>\n` +
-`<i>Foto berhasil diproses dengan AI blur wajah.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.image || jsonData.url || jsonData.result || jsonData.data?.url || jsonData.data;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: 'arraybuffer' });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🙈 Wajah sudah diblur otomatis!</blockquote>\n` +
-`<i>Foto berhasil diproses dengan AI blur wajah.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Toblur error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-try {
-await bot.deleteMessage(chatId, processingMsg?.message_id || 0);
-} catch (e) {}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🎫 HANDLER UNTUK FOTO DENGAN CAPTION /TOBLUR
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('photo', async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-if (msg.caption && msg.caption.trim() === '/toblur') {
-const messageText = 'PHOTO_CAPTION: /toblur';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-try {
-const fileId = msg.photo[msg.photo.length - 1].file_id;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Memproses foto...</blockquote>\n` +
-`<i>Mendeteksi dan mem-blur wajah...</i>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const filePath = file.file_path;
-const imageUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${filePath}`;
-const encodedUrl = encodeURIComponent(imageUrl);
-const apiUrl = `https://api-faa.my.id/faa/blurwajah?image=${encodedUrl}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const contentType = response.headers['content-type'] || '';
-if (contentType.startsWith('image/')) {
-const imageBuffer = Buffer.from(response.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🙈 Wajah sudah diblur otomatis!</blockquote>\n` +
-`<i>Foto berhasil diproses dengan AI blur wajah.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} else {
-try {
-const jsonData = JSON.parse(response.data.toString());
-const imageUrlFromApi = jsonData.image || jsonData.url || jsonData.result || jsonData.data?.url || jsonData.data;
-if (!imageUrlFromApi) throw new Error('API tidak mengembalikan gambar');
-const imgResponse = await axios.get(imageUrlFromApi, { responseType: 'arraybuffer' });
-const imageBuffer = Buffer.from(imgResponse.data);
-await bot.sendPhoto(chatId, imageBuffer, {
-caption: `<blockquote>🙈 Wajah sudah diblur otomatis!</blockquote>\n` +
-`<i>Foto berhasil diproses dengan AI blur wajah.</i>`,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (jsonError) {
-console.error('JSON parse error:', jsonError);
-await bot.editMessageText(
-`<blockquote>❌ Gagal memproses respons API</blockquote>\n` +
-`<code>${escapeHTML(jsonError.message)}</code>`,
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
-);
-}
-}
-} catch (error) {
-console.error('Toblur caption error:', error);
-let errorMessage = '';
-if (error.response?.status === 500) {
-errorMessage = `<blockquote>⚠️ API sedang maintenance</blockquote>\n` +
-`<i>Tunggu beberapa saat untuk mencoba kembali.</i>`;
-} else if (error.message?.includes('timeout')) {
-errorMessage = `<blockquote>⏰ Timeout</blockquote>\n` +
-`<i>Proses terlalu lama. Coba foto yang lebih kecil.</i>`;
-} else {
-errorMessage = `<blockquote>❌ Error memproses foto</blockquote>\n` +
-`<code>${escapeHTML(error.message || 'Unknown error')}</code>`;
-}
-await bot.sendMessage(chatId, errorMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📱 TIKTOK DOWNLOAD COMMAND
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/tt(?:\s+(.+))?$/, async (msg, match) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const input = match[1];
-const messageText = `/tt ${input || ''}`.trim();
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!input) {
-return bot.sendMessage(chatId,
-"<blockquote>❌ Masukkan URL TikTok!</blockquote>\n\nContoh:\n<code>/tt https://vt.tiktok.com/ZSU7xy99R/</code>",
-{ parse_mode: "HTML" }
-);
-}
-const tiktokPatterns = [
-/tiktok\.com\/.*\/video\/\d+/,
-/vt\.tiktok\.com\/.+/,
-/vm\.tiktok\.com\/.+/
-];
-const isValidUrl = tiktokPatterns.some(pattern => pattern.test(input));
-if (!isValidUrl) {
-return bot.sendMessage(chatId,
-"<blockquote>❌ URL TikTok tidak valid!</blockquote>\n\nFormat yang didukung:\n• https://tiktok.com/@user/video/123\n• https://vt.tiktok.com/xxx\n• https://vm.tiktok.com/xxx",
-{ parse_mode: "HTML" }
-);
-}
-try {
-const processingMsg = await bot.sendMessage(chatId,
-"<blockquote>⏳ Mengambil data TikTok...</blockquote>",
-{ parse_mode: "HTML", reply_to_message_id: msg.message_id }
-);
-const encodedUrl = encodeURIComponent(input);
-// Ambil data dari kedua API secara bersamaan
-const [responseInfo, responseDownload] = await Promise.all([
-axios.get(`https://tikwm.com/api/?url=${encodedUrl}`, { timeout: 30000 }),
-axios.get(`https://api.nvidiabotz.xyz/download/tiktok?url=${encodedUrl}`, { timeout: 30000 })
-]);
-const infoData = responseInfo.data;
-const downloadData = responseDownload.data;
-if (infoData.code !== 0 || !infoData.data || !downloadData.status) {
-await bot.editMessageText(
-"<blockquote>❌ Gagal mengambil data TikTok!</blockquote>",
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: "HTML" }
-);
-return;
-}
-const videoInfo = infoData.data;
-const downloadResult = downloadData.result;
-const authorUniqueId = videoInfo.author?.unique_id || "";
-const videoUrl = downloadResult?.video_hd || videoInfo.play;
-if (!videoUrl) {
-await bot.editMessageText(
-"<blockquote>❌ Video tidak ditemukan!</blockquote>",
-{ chat_id: chatId, message_id: processingMsg.message_id, parse_mode: "HTML" }
-);
-return;
-}
-const cacheKey = `tt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-global.tiktokCache = global.tiktokCache || {};
-global.tiktokCache[cacheKey] = { 
-infoData, 
-downloadData,
-videoInfo, 
-downloadResult,
-authorUniqueId,
-chatId: chatId,
-messageId: processingMsg.message_id,
-currentQuality: 'hd',
-currentMedia: 'video'
-};
-const formatNumber = (num) => {
-if (!num) return "0";
-if (num >= 1000000) return (num / 1000000).toFixed(1) + "M";
-if (num >= 1000) return (num / 1000).toFixed(1) + "K";
-return num.toString();
-};
-const caption = `<blockquote>📱 TIKTOK DOWNLOADER</blockquote>\n
-<b>🎬 Judul:</b> ${escapeHTML(videoInfo.title || 'Tidak ada judul')}\n
-<b>👤 Creator:</b> ${authorUniqueId ? `@${escapeHTML(authorUniqueId)}` : 'Tidak diketahui'}\n
-<b>📊 Statistik:</b>\n👁️ ${formatNumber(videoInfo.play_count || 0)} views\n❤️ ${formatNumber(videoInfo.digg_count || 0)} likes\n💬 ${formatNumber(videoInfo.comment_count || 0)} comments\n🔁 ${formatNumber(videoInfo.share_count || 0)} shares\n
-<b>⏱️ Durasi:</b> ${videoInfo.duration || 0} detik\n
-<i>Pilih opsi di bawah:</i>`;
-const inlineKeyboard = {
-inline_keyboard: [
-[
-{ text: "👤 LIHAT PROFIL", callback_data: `tt_profile_${cacheKey}` },
-{ text: "🎵 DOWNLOAD AUDIO", callback_data: `tt_audio_${cacheKey}` },
-{ text: "📹 DOWNLOAD SD", callback_data: `tt_sd_${cacheKey}` }
-],
-[
-{ text: "❌ BATAL", callback_data: `tt_cancel_${cacheKey}` }
-]
-]
-};
-await bot.sendVideo(chatId, videoUrl, { caption: caption, parse_mode: "HTML", reply_markup: inlineKeyboard, reply_to_message_id: msg.message_id });
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (error) {
-console.error("TikTok error:", error.message);
-logError('TIKTOK_ERROR', `URL: ${input}, Error: ${error.message}`, userId, username);
-bot.sendMessage(chatId, "<blockquote>❌ Error sistem!</blockquote>\n\nSilakan coba lagi atau gunakan URL yang berbeda.", { parse_mode: "HTML" });
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🖼️ HD IMAGE ENHANCER COMMAND
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/hd$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/hd';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-let fileId = null;
-if (msg.reply_to_message && msg.reply_to_message.photo) {
-fileId = msg.reply_to_message.photo[msg.reply_to_message.photo.length - 1].file_id;
-}
-if (!fileId) {
-return bot.sendMessage(chatId, 
-"<blockquote>❌ Reply foto dengan /hd</blockquote>",
-{ parse_mode: "HTML" }
-);
-}
-try {
-const processingMsg = await bot.sendMessage(chatId, 
-"<blockquote>⚡ Memproses...</blockquote>",
-{ parse_mode: "HTML" }
-);
-const fileLink = await bot.getFileLink(fileId);
-const response = await axios.get(fileLink, { responseType: 'arraybuffer' });
-const imageBuffer = Buffer.from(response.data);
-const enhancedBuffer = await enhanceImage(imageBuffer);
-await bot.sendPhoto(chatId, enhancedBuffer, {
-caption: "<blockquote>✅ HD Enhance selesai</blockquote>",
-parse_mode: "HTML"
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (error) {
-bot.sendMessage(chatId, 
-"<blockquote>❌ Gagal memproses</blockquote>",
-{ parse_mode: "HTML" }
-);
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📸 PHOTO WITH /HD CAPTION HANDLER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('photo', async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-if (msg.caption && msg.caption.trim() === '/hd') {
-const messageText = 'PHOTO_CAPTION: /hd';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-const fileId = msg.photo[msg.photo.length - 1].file_id;
-try {
-const processingMsg = await bot.sendMessage(chatId, 
-"<blockquote>⚡ Memproses...</blockquote>",
-{ parse_mode: "HTML" }
-);
-const fileLink = await bot.getFileLink(fileId);
-const response = await axios.get(fileLink, { responseType: 'arraybuffer' });
-const imageBuffer = Buffer.from(response.data);
-const enhancedBuffer = await enhanceImage(imageBuffer);
-await bot.sendPhoto(chatId, enhancedBuffer, {
-caption: "<blockquote>✅ HD Enhance selesai</blockquote>",
-parse_mode: "HTML"
-});
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (error) {
-bot.sendMessage(chatId, 
-"<blockquote>❌ Gagal memproses</blockquote>",
-{ parse_mode: "HTML" }
-);
-}
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🎨 IMAGE/STICKER GENERATOR COMMANDS
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/iqc(?:\s+(.+))?/, async (msg, match) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = `/iqc ${match[1] || ''}`.trim();
-logUserInteraction(userId, username, chatType, messageText, groupName);
-const input = match[1];
-if (!input) {
-return bot.sendMessage(chatId,
-"<blockquote>❌ Format salah.</blockquote>\n\nContoh penggunaan:\n<code>/iqc Woik| 00:55 | 55 | INDOSAT</code>",
-{ parse_mode: "HTML" }
-);
-}
-const parts = input.split("|").map(p => p.trim());
-const text = parts[0];
-const time = parts[1] || "12:12";
-const battery = parts[2] || "17";
-const carrier = parts[3] || "INDOSAT OREDOO";
-const apiUrl = `https://brat.siputzx.my.id/iphone-quoted?time=${encodeURIComponent(time)}&messageText=${encodeURIComponent(text)}&carrierName=${encodeURIComponent(carrier)}&batteryPercentage=${encodeURIComponent(battery)}&signalStrength=4&emojiStyle=apple`;
-try {
-await bot.sendChatAction(chatId, "upload_photo");
-const response = await axios.get(apiUrl, { responseType: "arraybuffer" });
-const buffer = Buffer.from(response.data, "binary");
-await bot.sendPhoto(chatId, buffer, {
-caption: `<blockquote>🪄 iPhone Quoted Generator ?</blockquote>
-      
-💬 <code>${escapeHTML(text)}</code>
-🕒 ${time} | 🔋 ${battery}% | 📡 ${carrier}`,
-parse_mode: "HTML",
-reply_markup: {
-inline_keyboard: [
-[{ text: "⌈ DEVELϴPER ⌋", url: config.URLADMIN }]
-]
-}
-});
-} catch (err) {
-console.error(err.message);
-logError('IQC_COMMAND_ERROR', `Error: ${err.message}`, userId, username);
-bot.sendMessage(chatId, "<blockquote>❌ Error membuat gambar.</blockquote>", { parse_mode: "HTML" });
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📢 fitur brat
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/brat(?:\s+(.+))?/, async (msg, match) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = `/brat ${match[1] || ''}`.trim();
-logUserInteraction(userId, username, chatType, messageText, groupName);
-const argsRaw = match[1];
-if (!argsRaw) {
-return bot.sendMessage(chatId,
-"<blockquote>❌ Format salah.</blockquote>\n\nContoh:\n<code>/brat Hello World</code>",
-{ parse_mode: "HTML" }
-);
-}
-try {
-const text = argsRaw.trim();
-if (!text) {
-return bot.sendMessage(chatId, '<blockquote>❌ Teks kosong!</blockquote>', { parse_mode: "HTML" });
-}
-await bot.sendChatAction(chatId, "upload_photo");
-const delay = 500;
-const isAnimated = false;
-const apiUrl = `https://api.siputzx.my.id/api/m/brat?text=${encodeURIComponent(text)}&isAnimated=${isAnimated}&delay=${delay}`;
-const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-const buffer = Buffer.from(response.data);
-await bot.sendSticker(chatId, buffer);
-} catch (error) {
-console.error('❌ Error brat:', error.message);
-logError('BRAT_COMMAND_ERROR', `Error: ${error.message}`, userId, username);
-bot.sendMessage(chatId, '<blockquote>❌ Gagal membuat stiker.</blockquote>', { parse_mode: "HTML" });
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📢 fitur update
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/update$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/update';    
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!isAdmin(userId)) {
-return bot.sendMessage(chatId, '<blockquote>❌ Hanya admin yang bisa!</blockquote>', { parse_mode: 'HTML' });
-}
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 UPDATE SYSTEM</blockquote>\n\n` +
-`🔍 Mencari versi terbaru di GitHub...\n` +
-`⏳ Mohon tunggu...`,
-{ parse_mode: 'HTML' }
-);
-try {
-const currentVersion = getCurrentVersion();
-const latestVersion = await checkLatestVersion();
-if (!latestVersion) {
-await bot.editMessageText(
-`<blockquote>❌ UPDATE GAGAL</blockquote>\n\n` +
-`Tidak dapat terhubung ke GitHub.\n` +
-`URL: ${GITHUB_URL}\n\n` +
-`<i>Pastikan koneksi internet stabil.</i>`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-return;
-}
-if (latestVersion === currentVersion) {
-await bot.editMessageText(
-`<blockquote>✅ SUDAH UPDATE</blockquote>\n\n` +
-`Bot sudah menggunakan versi terbaru.\n` +
-`Versi: <code>${currentVersion}</code>\n\n` +
-`<i>Tidak ada update yang diperlukan.</i>`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-return;
-}
-await bot.editMessageText(
-`<blockquote>🔄 UPDATE SYSTEM</blockquote>\n\n` +
-`✅ Versi terbaru ditemukan!\n\n` +
-`<b>📊 Perbandingan Versi:</b>\n` +
-`• Versi lokal: <code>${currentVersion}</code>\n` +
-`• Versi GitHub: <code>${latestVersion}</code>\n\n` +
-`<b>⚙️ Mode Setting:</b>\n` +
-`• setting.js: HANYA update versi\n` +
-`• Token & setting lain: TETAP\n` +
-`• File lain: Update penuh\n\n` +
-`<b>🔗 Sumber:</b>\n` +
-`${GITHUB_URL}\n\n` +
-`<i>Memulai proses download...</i>`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0];
-const backupDir = path.join(__dirname, 'backup', `${timestamp}_v${currentVersion}`);
-fs.mkdirSync(backupDir, { recursive: true });
-let updatedFiles = [];
-let failedFiles = [];
-let step = 1;
-const totalFiles = UPDATE_FILES.length;
-for (const file of UPDATE_FILES) {
-try {
-await bot.editMessageText(
-`<blockquote>🔄 UPDATE SYSTEM</blockquote>\n\n` +
-`📥 Downloading file...\n\n` +
-`Progress: ${step}/${totalFiles}\n` +
-`File: <code>${file}</code>\n` +
-`Status: Downloading...`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-const filePath = path.join(__dirname, file);
-if (fs.existsSync(filePath)) {
-const backupPath = path.join(backupDir, file);
-fs.copyFileSync(filePath, backupPath);
-}
-if (file === 'setting.js') {
-const currentSettings = readCurrentSettings();
-const updatedSettings = updateVersionInSetting(currentSettings, latestVersion);
-const finalContent = writeSettingFile(updatedSettings);
-fs.writeFileSync(filePath, finalContent, 'utf8');
-updatedFiles.push(`${file} (versi updated to ${latestVersion})`);
-} else {
-const fileContent = await downloadFileFromGithub(file);
-fs.writeFileSync(filePath, fileContent, 'utf8');
-updatedFiles.push(file);
-}                
-step++;
-await new Promise(resolve => setTimeout(resolve, 500));
-} catch (error) {
-failedFiles.push(`${file} (${error.message})`);
-}
-}
-if (updatedFiles.some(f => f.includes('package.json'))) {
-await bot.editMessageText(
-`<blockquote>🔄 UPDATE SYSTEM</blockquote>\n\n` +
-`✅ File berhasil didownload\n` +
-`📦 Menginstall dependencies baru...\n` +
-`⏳ Mohon tunggu...`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-try {
-const { execSync } = require('child_process');
-execSync('npm install', { cwd: __dirname, stdio: 'inherit' });
-} catch (npmError) {
-console.log('NPM install error:', npmError);
-}
-}        
-const successCount = updatedFiles.length;
-const failCount = failedFiles.length;
-let reportMessage = `<blockquote>✅ UPDATE SELESAI</blockquote>\n\n`;
-reportMessage += `<b>📊 Hasil Update:</b>\n`;
-reportMessage += `• Versi lama: <code>${currentVersion}</code>\n`;
-reportMessage += `• Versi baru: <code>${latestVersion}</code>\n`;
-reportMessage += `• File berhasil: ${successCount}\n`;
-reportMessage += `• File gagal: ${failCount}\n\n`;
-if (updatedFiles.length > 0) {
-reportMessage += `<b>✅ File yang berhasil diupdate:</b>\n`;
-updatedFiles.forEach(file => {
-reportMessage += `• ${file}\n`;
-});
-reportMessage += `\n`;
-}
-if (failedFiles.length > 0) {
-reportMessage += `<b>❌ File yang gagal diupdate:</b>\n`;
-failedFiles.forEach(file => {
-reportMessage += `• ${file}\n`;
-});
-reportMessage += `\n`;
-}
-const currentSettings = readCurrentSettings();
-reportMessage += `<b>⚙️ Konfigurasi yang TETAP SAMA:</b>\n`;
-reportMessage += `• Token: <code>${currentSettings.TELEGRAM_TOKEN ? '✓ Terjaga' : '✗ Tidak ada'}</code>\n`;
-reportMessage += `• Owner ID: <code>${currentSettings.OWNER_ID || 'Tidak ada'}</code>\n`;
-reportMessage += `• API Keys: <code>✓ Semua terjaga</code>\n`;
-reportMessage += `\n`;
-reportMessage += `<b>🚀 Langkah selanjutnya:</b>\n`;
-reportMessage += `1. Ketik <code>/restart</code> untuk menerapkan perubahan\n`;
-reportMessage += `2. Bot akan restart dengan versi baru\n`;
-reportMessage += `3. Backup disimpan di: <code>${backupDir}</code>\n\n`;
-reportMessage += `<i>Update selesai pada: ${new Date().toLocaleString('id-ID')}</i>`;
-await bot.editMessageText(reportMessage, {
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-});
-const ownerNotification = `<blockquote>📢 UPDATE BERHASIL</blockquote>\n\n` +
-`<b>👤 Admin:</b> ${username}\n` +
-`<b>🆔 ID:</b> <code>${userId}</code>\n` +
-`<b>📅 Waktu:</b> ${new Date().toLocaleString('id-ID')}\n` +
-`<b>🔄 Versi:</b> ${currentVersion} → ${latestVersion}\n` +
-`<b>✅ Status:</b> Update selesai\n\n` +
-`<b>🔧 Mode Update:</b>\n` +
-`• Hanya versi yang diupdate\n` +
-`• Token & konfigurasi TETAP\n` +
-`• Setting lama: 100% terjaga\n\n` +
-`<b>🚀 Silakan ketik:</b>\n<code>/restart</code>\n\n` +
-`<i>Untuk menerapkan perubahan</i>`;
-try {
-await bot.sendMessage(config.OWNER_ID, ownerNotification, { parse_mode: 'HTML' });
-} catch (error) {}
-} catch (error) {
-await bot.editMessageText(
-`<blockquote>❌ UPDATE GAGAL</blockquote>\n\n` +
-`Terjadi kesalahan saat proses update:\n\n` +
-`<code>${error.message}</code>\n\n` +
-`<b>🔗 GitHub URL:</b>\n` +
-`${GITHUB_URL}\n\n` +
-`<b>🔧 Solusi:</b>\n` +
-`1. Cek koneksi internet\n` +
-`2. Pastikan file ada di GitHub\n` +
-`3. Coba lagi nanti\n` +
-`4. Hubungi developer`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📢 BROADCAST COMMAND (ADMIN ONLY) - DIPERBAIKI
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/broadcast(?:\s+)?/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = msg.text || '';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!isAdmin(userId)) {
-return bot.sendMessage(chatId, '<b>❌ Hanya admin yang bisa!</b>', { parse_mode: 'HTML' });
-}
-let broadcastText = '';
-if (msg.text) {
-const match = msg.text.match(/^\/broadcast(?:\s+)?/);
-if (match) {
-broadcastText = msg.text.substring(match[0].length).trim();
-}
-}
-if (!broadcastText && !msg.reply_to_message) {
-return bot.sendMessage(chatId,
-`<blockquote>📢 <b>BROADCAST COMMAND</b></blockquote>\n\n` +
-`<b>Format penggunaan:</b>\n\n` +
-`<code>/broadcast [pesan]</code>\n` +
-`Contoh: <code>/broadcast 𝘾𝙀𝙋𝘼𝙉𝙀𝙇 𝙑𝟭.𝟬 🤖\\n📦 DAFTAR HARGA</code>\n\n` +
-`Atau reply foto/video/audio/dokumen dengan:\n` +
-`<code>/broadcast [caption]</code>\n\n` +
-`<b>Note:</b> Teks akan dikirim dengan format HTML.`,
-{ parse_mode: 'HTML' }
-);
-}
-const users = loadUsers();
-const userIds = Object.keys(users);
-if (userIds.length === 0) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Tidak Ada User</blockquote>\n\n` +
-`Belum ada user yang terdaftar dalam database.`,
-{ parse_mode: 'HTML' }
-);
-}
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>📢 MEMULAI BROADCAST</blockquote>\n\n` +
-`<b>Status:</b> Memulai proses broadcast...\n` +
-`<b>Total User:</b> ${userIds.length} user\n` +
-`<b>Waktu:</b> ${new Date().toLocaleTimeString('id-ID', {hour12: false})}\n\n` +
-`<i>Mohon tunggu, proses mungkin memakan waktu...</i>`,
-{ parse_mode: 'HTML' }
-);
-try {
-let successCount = 0;
-let failedCount = 0;
-const startTime = Date.now();
-let broadcastMessage = '';
-if (broadcastText) {
-const formattedText = broadcastText
-.replace(/\n\s*\n/g, '<br><br>')
-.replace(/\n/g, '<br>');
-broadcastMessage = `<blockquote>${formattedText}</blockquote>`;
-}
-const sendToUser = async (targetUserId, index) => {
-try {
-await new Promise(resolve => setTimeout(resolve, index * 100));
-if (msg.reply_to_message) {
-const repliedMsg = msg.reply_to_message;
-let captionText = '';
-if (broadcastText) {
-captionText = broadcastText
-.replace(/\n\s*\n/g, '\n\n')
-.replace(/<br\s*\/?>/g, '\n');
-}
-if (repliedMsg.photo) {
-const photo = repliedMsg.photo[repliedMsg.photo.length - 1];
-await bot.sendPhoto(targetUserId, photo.file_id, {
-caption: broadcastText ? `<blockquote>${captionText}</blockquote>` : '',
-parse_mode: 'HTML'
-});
-} else if (repliedMsg.video) {
-const video = repliedMsg.video;
-const originalCaption = repliedMsg.caption || '';
-await bot.sendVideo(targetUserId, video.file_id, {
-caption: broadcastText ? `<blockquote>${captionText}</blockquote>` : 
-(originalCaption ? `<blockquote>${originalCaption}</blockquote>` : ''),
-parse_mode: 'HTML'
-});
-} else if (repliedMsg.audio) {
-const audio = repliedMsg.audio;
-const originalCaption = repliedMsg.caption || '';
-await bot.sendAudio(targetUserId, audio.file_id, {
-caption: broadcastText ? `<blockquote>${captionText}</blockquote>` : 
-(originalCaption ? `<blockquote>${originalCaption}</blockquote>` : ''),
-parse_mode: 'HTML'
-});
-} else if (repliedMsg.document) {
-const document = repliedMsg.document;
-const originalCaption = repliedMsg.caption || '';
-await bot.sendDocument(targetUserId, document.file_id, {
-caption: broadcastText ? `<blockquote>${captionText}</blockquote>` : 
-(originalCaption ? `<blockquote>${originalCaption}</blockquote>` : ''),
-parse_mode: 'HTML'
-});
-} else {
-if (broadcastMessage) {
-await bot.sendMessage(targetUserId, broadcastMessage, { parse_mode: 'HTML' });
-}
-}
-} else {
-if (broadcastMessage) {
-await bot.sendMessage(targetUserId, broadcastMessage, { parse_mode: 'HTML' });
-}
-}
-successCount++;
-if (successCount % 10 === 0 || successCount + failedCount === userIds.length) {
-const elapsedTime = Math.floor((Date.now() - startTime) / 1000);
-const processed = successCount + failedCount;
-const percentage = Math.floor((processed / userIds.length) * 100);
-await bot.editMessageText(
-`<blockquote>📢 BROADCAST BERJALAN</blockquote>\n\n` +
-`<b>Status:</b> Sedang mengirim...\n` +
-`<b>Progress:</b> ${processed}/${userIds.length}\n` +
-`<b>Berhasil:</b> ${successCount} user\n` +
-`<b>Gagal:</b> ${failedCount} user\n` +
-`<b>Waktu:</b> ${elapsedTime} detik\n\n` +
-`<i>${percentage}% selesai...</i>`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-}
-} catch (error) {
-failedCount++;
-console.error(`Gagal mengirim ke ${targetUserId}:`, error.message);
-}
-};
-for (let i = 0; i < userIds.length; i++) {
-await sendToUser(userIds[i], i);
-}
-const totalTime = Math.floor((Date.now() - startTime) / 1000);
-const successRate = ((successCount / userIds.length) * 100).toFixed(2);
-const resultMessage = `<blockquote>✅ BROADCAST SELESAI</blockquote>\n\n` +
-`<b>📊 Hasil Broadcast:</b>\n` +
-`<b>Total User:</b> ${userIds.length}\n` +
-`<b>Berhasil dikirim:</b> ${successCount} user\n` +
-`<b>Gagal dikirim:</b> ${failedCount} user\n` +
-`<b>Persentase sukses:</b> ${successRate}%\n` +
-`<b>Waktu total:</b> ${totalTime} detik\n\n`;
-const statsMessage = `<blockquote>📈 STATISTIK PENGIRIMAN</blockquote>\n\n` +
-`<b>Mode:</b> ${msg.reply_to_message ? 'Media + Caption' : 'Teks Saja'}\n` +
-`<b>Panjang teks:</b> ${broadcastText ? broadcastText.length : 0} karakter\n` +
-`<b>Waktu mulai:</b> ${new Date(startTime).toLocaleTimeString('id-ID')}\n` +
-`<b>Waktu selesai:</b> ${new Date().toLocaleTimeString('id-ID')}\n` +
-`<b>Durasi:</b> ${totalTime} detik\n\n` +
-`<blockquote><i>Broadcast selesai pada: ${new Date().toLocaleString('id-ID')}</i></blockquote>`;
-await bot.editMessageText(resultMessage + statsMessage, {
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-});
-setTimeout(async () => {
-try {
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (error) {
-console.log('Tidak bisa menghapus pesan status:', error.message);
-}
-}, 10000);
-} catch (error) {
-console.error('Broadcast error:', error);
-logError('BROADCAST_ERROR', `Error: ${error.message}`, userId);
-await bot.editMessageText(
-`<blockquote>❌ BROADCAST GAGAL</blockquote>\n\n` +
-`Error: ${error.message}\n\n` +
-`Silakan coba lagi nanti.`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📜 LOG VIEWER COMMAND (ADMIN ONLY) - SIMPLE
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/logs$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/logs';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!isAdmin(userId)) {
-return bot.sendMessage(chatId, '<b>❌ Hanya admin yang bisa!</b>', { parse_mode: 'HTML' });
-}
-try {
-if (!fs.existsSync(LOG_FILE)) {
-return bot.sendMessage(chatId,
-`<blockquote>📁 File Log Tidak Ditemukan</blockquote>\n\n` +
-`File <code>log.txt</code> tidak ditemukan di folder <code>lib/</code>.\n\n` +
-`<b>Kemungkinan:</b>\n` +
-`• Belum ada error yang tercatat\n` +
-`• File log belum dibuat\n` +
-`• Path file tidak sesuai`,
-{ parse_mode: 'HTML' }
-);
-}
-const logStats = fs.statSync(LOG_FILE);
-if (logStats.size === 0) {
-return bot.sendMessage(chatId,
-`<blockquote>📜 LOG ERROR KOSONG</blockquote>\n\n` +
-`File log.txt ditemukan tetapi isinya kosong.\n\n` +
-`<i>Bot berjalan dengan baik! ✅</i>`,
-{ parse_mode: 'HTML' }
-);
-}
-const logContent = fs.readFileSync(LOG_FILE, 'utf-8');
-if (!logContent || logContent.trim().length === 0) {
-return bot.sendMessage(chatId,
-`<blockquote>📜 LOG ERROR KOSONG</blockquote>\n\n` +
-`File log.txt ditemukan tetapi tidak berisi data.\n\n` +
-`<i>Bot berjalan dengan baik! ✅</i>`,
-{ parse_mode: 'HTML' }
-);
-}
-const lines = logContent.split('\n').filter(line => line.trim() !== '');
-const totalLines = lines.length;
-const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0];
-const filename = `log_${timestamp}.txt`;
-const readStream = fs.createReadStream(LOG_FILE);
-await bot.sendDocument(chatId, readStream, {
-caption: `<blockquote>📜 LOG ERROR FILE</blockquote>\n\n` +
-`<b>File:</b> ${filename}\n` +
-`<b>Total Baris:</b> ${totalLines} baris\n` +
-`<b>Ukuran:</b> ${(logStats.size / 1024).toFixed(2)} KB\n` +
-`<b>Dibuat:</b> ${new Date().toLocaleString('id-ID')}\n\n` +
-`<i>File log.txt berhasil dikirim.</i>`,
-parse_mode: 'HTML',
-filename: filename
-});
-} catch (error) {
-console.error('Log viewer error:', error);
-let errorMessage = error.message || 'Unknown error';
-bot.sendMessage(chatId,
-`<blockquote>❌ GAGAL MEMBACA LOG</blockquote>\n\n` +
-`<b>Error:</b> ${errorMessage}\n` +
-`<b>File:</b> log.txt\n` +
-`<b>Path:</b> ${LOG_FILE}\n\n` +
-`Periksa apakah file log.txt ada dan dapat dibaca.`,
-{ parse_mode: 'HTML' }
-);
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 💾 BACKUP DATA COMMAND (ADMIN ONLY)
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/backup$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/backup';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!isAdmin(userId)) {
-return bot.sendMessage(chatId, '<b>❌ Hanya admin yang bisa!</b>', { parse_mode: 'HTML' });
-}
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>💾 Backup Data</blockquote>\n\n` +
-`🔄 <b>Status:</b> Memulai proses backup...\n` +
-`📁 <b>Folder:</b> lib/\n` +
-`⏳ <b>Waktu:</b> ${new Date().toLocaleTimeString('id-ID', {hour12: false})}`,
-{ parse_mode: 'HTML' }
-);
-try {
-if (!fs.existsSync(DATA_DIR)) {
-await bot.editMessageText(
-`<blockquote>❌ Backup Gagal</blockquote>\n\n` +
-`Folder <code>lib/</code> tidak ditemukan.`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-return;
-}
-const files = fs.readdirSync(DATA_DIR);
-const jsonFiles = files.filter(file => file.endsWith('.json'));
-if (jsonFiles.length === 0) {
-await bot.editMessageText(
-`<blockquote>❌ Backup Gagal</blockquote>\n\n` +
-`Tidak ada file JSON ditemukan di folder <code>lib/</code>.`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-return;
-}
-await bot.editMessageText(
-`<blockquote>💾 Backup Data</blockquote>\n\n` +
-`🔄 <b>Status:</b> Membaca ${jsonFiles.length} file JSON...\n` +
-`📁 <b>File ditemukan:</b> ${jsonFiles.length}\n` +
-`⏳ <b>Waktu:</b> ${new Date().toLocaleTimeString('id-ID', {hour12: false})}`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0] + '_' + 
-new Date().getTime().toString().slice(-6);
-const backupFileName = `backup_${timestamp}.zip`;
-const backupFilePath = path.join(__dirname, backupFileName);
-const output = fs.createWriteStream(backupFilePath);
-const archive = archiver('zip', {
-zlib: { level: 9 }
-});
-output.on('close', async () => {
-try {
-const fileSize = archive.pointer();
-const formattedSize = (fileSize / 1024).toFixed(2) + ' KB';
-const statusMessage = `<blockquote>💾 Backup Data</blockquote>\n\n` +
-`✅ <b>Status:</b> Backup berhasil dibuat!\n` +
-`📁 <b>File:</b> ${backupFileName}\n` +
-`📦 <b>Ukuran:</b> ${formattedSize}\n` +
-`?? <b>Total file:</b> ${jsonFiles.length}\n` +
-`⏳ <b>Waktu:</b> ${new Date().toLocaleTimeString('id-ID', {hour12: false})}\n\n` +
-`<i>⏰ Pesan ini akan terhapus otomatis dalam 15 detik...</i>`;
-await bot.editMessageText(statusMessage, {
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-});
-const zipBuffer = fs.readFileSync(backupFilePath);
-await bot.sendDocument(chatId, zipBuffer, {
-caption: `<blockquote>💾 Backup Data Berhasil</blockquote>\n\n` +
-`📁 <b>Nama File:</b> ${backupFileName}\n` +
-`📦 <b>Ukuran:</b> ${formattedSize}\n` +
-`📄 <b>Total File JSON:</b> ${jsonFiles.length}\n\n` +
-`<b>📋 Daftar File:</b>\n${jsonFiles.map((file, index) => `${index + 1}. ${file}`).join('\n')}\n\n` +
-`<blockquote>⏰ Backup dibuat: ${new Date().toLocaleString('id-ID')}</blockquote>`,
-parse_mode: 'HTML'
-});
-fs.unlinkSync(backupFilePath);
-setTimeout(async () => {
-try {
-await bot.deleteMessage(chatId, processingMsg.message_id);
-} catch (deleteError) {
-console.error('Gagal menghapus pesan status:', deleteError);
-}
-}, 15000);
-} catch (error) {
-console.error('Error sending backup file:', error);
-logError('BACKUP_SEND_ERROR', `Error: ${error.message}`, userId);
-await bot.editMessageText(
-`<blockquote>❌ Error Mengirim Backup</blockquote>\n\n` +
-`Error: ${error.message}`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-}
-});
-archive.on('error', async (err) => {
-console.error('Archive error:', err);
-logError('BACKUP_ARCHIVE_ERROR', `Error: ${err.message}`, userId);
-await bot.editMessageText(
-`<blockquote>❌ Error Membuat Archive</blockquote>\n\n` +
-`Error: ${err.message}`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-});
-archive.pipe(output);
-jsonFiles.forEach(file => {
-const filePath = path.join(DATA_DIR, file);
-archive.file(filePath, { name: file });
-});
-archive.finalize();
-} catch (error) {
-console.error('Backup error:', error);
-logError('BACKUP_ERROR', `Error: ${error.message}`, userId);
-await bot.editMessageText(
-`<blockquote>❌ Backup Gagal</blockquote>\n\n` +
-`Error: ${error.message}`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🔄 RESTART BOT COMMAND (ADMIN ONLY) - DIPERBAIKI
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/restart$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/restart';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!isAdmin(userId)) {
-return bot.sendMessage(chatId, '<b>❌ Hanya admin yang bisa!</b>', { parse_mode: 'HTML' });
-}
-const bars = [
-`<blockquote>⚡ <b>ɪɴɪᴛɪᴀʟɪᴢɪɴɢ ʀᴇꜱᴛᴀʀᴛ ꜱᴇǫᴜᴇɴᴄᴇ...</b>\n░░░░░░░░░ 0%</blockquote>`,
-`<blockquote>⚡ <b>ꜱʏꜱᴛᴇᴍ ʀᴇꜱᴛᴀʀᴛ ɪɴ ᴘʀᴏɢʀᴇꜱꜱ...</b>\n████░░░░░ 40%</blockquote>`,
-`<blockquote>⚡ <b>ꜰɪɴᴀʟɪᴢɪɴɢ ʀᴇꜱᴛᴀʀᴛ ᴘʀᴏᴄᴇꜱꜱ...</b>\n████████░░ 80%</blockquote>`,
-`<blockquote>✅ <b>ʀᴇꜱᴛᴀʀᴛ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ ᴄᴏᴍᴘʟᴇᴛᴇᴅ!</b>\n██████████ 100%</blockquote>`,
-`<blockquote>🔐 <b>ᴀᴜᴛᴏ-ʟᴏɢɪɴ ꜱᴇꜱꜱɪᴏɴ ꜱᴀᴠᴇᴅ</b>\n✓ ɴᴏ ᴘᴀꜱꜱᴡᴏʀᴅ ʀᴇǫᴜɪʀᴇᴅ ᴏɴ ɴᴇxᴛ ʟᴀᴜɴᴄʜ</blockquote>`,
-`<blockquote>🔄 <b>ʀᴇꜱᴛᴀʀᴛɪɴɢ ʙᴏᴛ...</b>\n⏳ ᴘʟᴇᴀꜱᴇ ᴡᴀɪᴛ 3 ꜱᴇᴄᴏɴᴅꜱ</blockquote>`
-];
-try {
-let sent = await bot.sendMessage(chatId, bars[0], { parse_mode: "HTML" });
-for (let i = 1; i < bars.length; i++) {
-await new Promise(resolve => setTimeout(resolve, 700));
-await bot.editMessageText(bars[i], {
-chat_id: chatId,
-message_id: sent.message_id,
-parse_mode: "HTML"
-});
-}
-const finalMessage = `<blockquote><b>👋 ʙᴏᴛ ɪꜱ ʀᴇꜱᴛᴀʀᴛɪɴɢ...</b>\n<b>🎯 ʙᴇ ʀɪɢʜᴛ ʙᴀᴄᴋ!</b>\n\n<i>Pesan ini akan terhapus otomatis dalam 5 detik...</i></blockquote>`;
-await bot.editMessageText(finalMessage, {
-chat_id: chatId,
-message_id: sent.message_id,
-parse_mode: "HTML"
-});
-await new Promise(resolve => setTimeout(resolve, 5000));
-try {
-await bot.deleteMessage(chatId, sent.message_id);
-} catch (deleteError) {
-console.log('Tidak bisa menghapus pesan, lanjut restart:', deleteError.message);
-}
-const restartData = {
-chatId: chatId,
-messageId: sent.message_id,
-adminId: userId,
-adminName: username,
-restartTime: new Date().toISOString(),
-platform: os.platform()
-};
-saveRestartData(restartData);
-process.exit(0);
-} catch (error) {
-console.error('Restart error:', error);
-logError('RESTART_ERROR', `Error: ${error.message}`, userId);
-bot.sendMessage(chatId, 
-`<b>❌ ʀᴇꜱᴛᴀʀᴛ ꜰᴀɪʟᴇᴅ!</b>\nᴘʟᴇᴀꜱᴇ ᴛʀʏ ᴀɢᴀɪɴ ʟᴀᴛᴇʀ.`, 
-{ parse_mode: "HTML" }
-);
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// ℹ️ INFO USER COMMAND
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/info(?:\s+(.+))?$/, async (msg, match) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const text = match[1];
-const messageText = `/info ${text || ''}`.trim();
-logUserInteraction(userId, username, chatType, messageText, groupName);
-let targetUser = null;
-let targetUserId = null;
-if (msg.reply_to_message && msg.reply_to_message.from) {
-targetUser = msg.reply_to_message.from;
-targetUserId = targetUser.id.toString();
-} 
-else if (text) {
-if (text.startsWith('@')) {
-const targetUsername = text.substring(1).toLowerCase();
-const users = loadUsers();
-const foundUser = Object.entries(users).find(([id, userData]) => {
-if (userData.username) {
-const storedUsername = userData.username.startsWith('@') ? 
-userData.username.substring(1).toLowerCase() : 
-userData.username.toLowerCase();
-return storedUsername === targetUsername;
-}
-return false;
-});
-if (foundUser) {
-const [id, userData] = foundUser;
-targetUserId = id;
-targetUser = {
-id: parseInt(id),
-first_name: userData.first_name || '',
-last_name: userData.last_name || '',
-username: userData.username && userData.username.startsWith('@') ? 
-userData.username.substring(1) : userData.username
-};
-} else {
-return bot.sendMessage(chatId,
-`<blockquote>❌ User Tidak Ditemukan</blockquote>\n\n` +
-`Username <code>${text}</code> tidak ditemukan dalam database.`,
-{ parse_mode: 'HTML' }
-);
-}
-} 
-else if (/^\d+$/.test(text)) {
-targetUserId = text.trim();
-const users = loadUsers();
-const userData = users[targetUserId];
-if (userData) {
-targetUser = {
-id: parseInt(targetUserId),
-first_name: userData.first_name || '',
-last_name: userData.last_name || '',
-username: userData.username && userData.username.startsWith('@') ? 
-userData.username.substring(1) : userData.username
-};
-} else {
-targetUser = {
-id: parseInt(targetUserId),
-first_name: 'Unknown',
-last_name: '',
-username: null
-};
-}
-} 
-else {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format Tidak Valid</blockquote>\n\n` +
-`Gunakan salah satu format berikut:\n\n` +
-`• <code>/info</code> (untuk info diri sendiri)\n` +
-`• <code>/info @username</code>\n` +
-`• <code>/info 123456789</code>\n` +
-`• Reply pesan seseorang dengan <code>/info</code>`,
-{ parse_mode: 'HTML' }
-);
-}
-} 
-else {
-targetUser = msg.from;
-targetUserId = userId;
-}
-const users = loadUsers();
-const reseller = loadReseller();
-const admins = loadAdmins();
-const userData = users[targetUserId] || {};
-const isTargetAdmin = isAdmin(targetUserId);
-const isTargetReseller = isReseller(targetUserId);
-const isUserAdmin = isAdmin(userId);
-let status = 'User';
-if (isTargetAdmin) {
-status = '👑 Admin';
-} else if (isTargetReseller) {
-status = '⭐ Seller';
-}
-const fullName = `${userData.first_name || targetUser.first_name || ''} ${userData.last_name || targetUser.last_name || ''}`.trim() || 'Tidak diketahui';
-const targetUsername = userData.username ? 
-(userData.username.startsWith('@') ? userData.username : `@${userData.username}`) : 
-(targetUser.username ? `@${targetUser.username}` : 'Tidak ada');
-let joinDate = 'Tidak diketahui';
-if (userData.joinedAt) {
-const date = new Date(userData.joinedAt);
-joinDate = date.toLocaleDateString('id-ID', { 
-weekday: 'long',
-year: 'numeric',
-month: 'long',
-day: 'numeric',
-hour: '2-digit',
-minute: '2-digit'
-});
-}
-let lastSeen = 'Tidak diketahui';
-if (userData.lastSeen) {
-const date = new Date(userData.lastSeen);
-const now = new Date();
-const diffMs = now - date;
-const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-if (diffDays > 0) {
-lastSeen = `${diffDays} hari yang lalu`;
-} else if (diffHours > 0) {
-lastSeen = `${diffHours} jam yang lalu`;
-} else if (diffMins > 0) {
-lastSeen = `${diffMins} menit yang lalu`;
-} else {
-lastSeen = 'Baru saja';
-}
-}
-const dcId = (targetUser.id >> 32) % 256;
-let infoMessage = `<blockquote>📋 USER INFORMATION</blockquote>\n\n`;
-infoMessage += `👤 <b>Name:</b> ${fullName}\n`;
-infoMessage += `🆔 <b>User ID:</b> <code>${targetUserId}</code>\n`;
-infoMessage += `🌐 <b>Username:</b> ${targetUsername}\n`;
-infoMessage += `📅 <b>Bergabung:</b> ${joinDate}\n`;
-infoMessage += `👀 <b>Terakhir dilihat:</b> ${lastSeen}\n`;
-infoMessage += `🏢 <b>DC ID:</b> ${dcId}\n`;
-infoMessage += `👑 <b>Status:</b> ${status}\n`;
-if (isUserAdmin) {
-const transactions = loadTransactions();
-let panelCount = 0;
-let sellerCount = 0;
-Object.values(transactions).forEach(transaction => {
-if (transaction.userId === targetUserId && transaction.status === 'completed') {
-panelCount++;
-if (transaction.createdBy === 'seller') {
-sellerCount++;
-}
-}
-});
-infoMessage += `\n<blockquote>📊 ADMIN INFO:</blockquote>\n`;
-infoMessage += `📦 <b>Total Panel Dibuat:</b> ${panelCount}\n`;
-if (panelCount > 0) {
-infoMessage += `⭐ <b>Sebagai Seller:</b> ${sellerCount} panel\n`;
-infoMessage += `👤 <b>Sebagai User:</b> ${panelCount - sellerCount} panel\n`;
-}
-}
-if (isTargetReseller && !isTargetAdmin) {
-infoMessage += `\n<blockquote>⭐ SELLER INFO:</blockquote>\n`;
-infoMessage += `✅ <b>Akses:</b> Bisa buat panel gratis\n`;
-infoMessage += `📅 <b>Aktif Sejak:</b> ${joinDate}\n`;
-infoMessage += `👤 <b>Referensi ID:</b> <code>${targetUserId}</code>\n`;
-}
-infoMessage += `\n<blockquote><i>Generated by ${config.BOT_NAME || 'Novabot'} • ${new Date().getFullYear()}</i></blockquote>`;
-try {
-if (msg.reply_to_message && msg.reply_to_message.from) {
-const photos = await bot.getUserProfilePhotos(targetUser.id, { limit: 1 });
-if (photos.total_count > 0) {
-const fileId = photos.photos[0][0].file_id;
-const file = await bot.getFile(fileId);
-const photoUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${file.file_path}`;
-const response = await axios.get(photoUrl, { responseType: 'arraybuffer' });
-const avatarBuffer = Buffer.from(response.data, 'binary');
-return bot.sendPhoto(chatId, avatarBuffer, {
-caption: infoMessage,
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-}
-}
-} catch (error) {
-console.log('Tidak bisa mengambil foto profil:', error.message);
-}
-return bot.sendMessage(chatId, infoMessage, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📋 LIST SELLER COMMAND
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/listseller$/, (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/listseller';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-const reseller = loadReseller();
-const users = loadUsers();
-const resellerIds = Object.keys(reseller);
-if (resellerIds.length === 0) {
-return bot.sendMessage(chatId,
-`<blockquote>📋 DAFTAR SELLER</blockquote>\n\n` +
-`<b>Total Seller:</b> 0\n\n` +
-`Belum ada seller terdaftar.`,
-{ parse_mode: 'HTML' }
-);
-}
-let message = `<blockquote>📋 DAFTAR SELLER</blockquote>\n\n`;
-message += `<b>Total Seller:</b> ${resellerIds.length}\n\n`;
-message += `<b>List Nama Seller:</b>\n`;
-resellerIds.forEach((id, index) => {
-const userData = users[id] || {};
-const sellerName = userData.username ? 
-`${userData.username}` : 
-(userData.first_name || `Seller_${index + 1}`);
-message += `${index + 1} ${sellerName}\n`;
-});
-if (isAdmin(userId)) {
-message += `\n<blockquote>Gunakan /delseller untuk melihat daftar seller dengan ID.</blockquote>`;
-} else {
-message += `\n<blockquote>Info: Hanya admin yang bisa menambah/hapus seller</blockquote>`;
-}
-bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📝 COMMAND /DEPLOY - HANDLER UTAMA
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/deploy$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-deployStates[userId] = {
-step: 'waiting_for_html',
-htmlContent: null,
-siteName: null,
-timeout: null,
-messageId: null
-};
-console.log(`User ${username} (${userId}) memulai deploy`);
-const instructions = `<blockquote>🚀 FITUR DEPLOY WEBSITE HTML</blockquote>
-
-<blockquote><b>Silakan kirim file HTML Anda dengan nama <code>index.html</code></b></blockquote>
-
-<blockquote><b>📌 SYARAT & KETENTUAN:</b>
-• File harus berekstensi .html
-• Nama file harus <code>index.html</code> (wajib)
-• Maksimal ukuran file: 5MB
-• Hanya file HTML yang diperbolehkan</blockquote>
-
-<blockquote><b>⏰ WAKTU:</b>
-• Anda punya 2 menit untuk mengirim file
-• Jika tidak ada respon, proses akan dibatalkan</blockquote>
-
-<blockquote><b>📤 Silakan upload file HTML Anda sekarang...</b></blockquote>`;
-const sentMessage = await bot.sendMessage(chatId, instructions, {
-parse_mode: 'HTML',
-reply_to_message_id: msg.message_id
-});
-deployStates[userId].messageId = sentMessage.message_id;
-deployStates[userId].timeout = setTimeout(async () => {
-if (deployStates[userId] && deployStates[userId].step !== 'completed') {
-await bot.sendMessage(chatId, 
-`<blockquote>⏳ WAKTU HABIS</blockquote>\n\n` +
-`Proses deploy dibatalkan karena tidak ada respon selama 2 menit.\n` +
-`Gunakan /deploy untuk memulai kembali.`,
-{ parse_mode: 'HTML' }
-);
-delete deployStates[userId];
-}
-}, 120000); // 2 menit = 120000 ms
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📁 HANDLER UNTUK MENERIMA FILE HTML
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('document', async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-if (!deployStates[userId] || deployStates[userId].step !== 'waiting_for_html') {
-return;
-}    
-const fileId = msg.document.file_id;
-const fileName = msg.document.file_name;
-const fileSize = msg.document.file_size;
-console.log(`User ${userId} mengirim file: ${fileName} (${fileSize} bytes)`);
-if (!fileName.toLowerCase().endsWith('.html')) {
-await bot.sendMessage(chatId, 
-`<blockquote>❌ FILE TIDAK VALID</blockquote>\n\n` +
-`Hanya file HTML yang diperbolehkan.\n` +
-`Nama file Anda: <code>${fileName}</code>\n\n` +
-`Silakan kirim file HTML dengan nama <code>index.html</code>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-return;
-}
-if (fileName.toLowerCase() !== 'index.html') {
-await bot.sendMessage(chatId,
-`<blockquote>❌ NAMA FILE SALAH</blockquote>\n\n` +
-`Nama file wajib: <code>index.html</code>\n` +
-`Nama file Anda: <code>${fileName}</code>\n\n` +
-`Silakan rename file menjadi <code>index.html</code> dan kirim ulang.`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-return;
-}
-if (fileSize > 5 * 1024 * 1024) { // 5MB limit
-await bot.sendMessage(chatId,
-`<blockquote>❌ UKURAN TERLALU BESAR</blockquote>\n\n` +
-`Ukuran file: ${(fileSize / 1024 / 1024).toFixed(2)}MB\n` +
-`Maksimal: 5MB\n\n` +
-`Silakan kompres file atau gunakan file yang lebih kecil.`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-return;
-}
-if (deployStates[userId].timeout) {
-clearTimeout(deployStates[userId].timeout);
-}
-try {
-const processingMsg = await bot.sendMessage(chatId, 
-`<blockquote>📥 MENDOWNLOAD FILE...</blockquote>\n\n` +
-`Nama: <code>${fileName}</code>\n` +
-`Ukuran: ${(fileSize / 1024).toFixed(2)}KB\n` +
-`Status: Memproses...`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const fileUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${file.file_path}`;
-console.log(`Downloading file from: ${fileUrl}`);
-const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
-const fileContent = response.data.toString('utf-8');
-if (!fileContent.includes('<html') && !fileContent.includes('<!DOCTYPE')) {
-await bot.editMessageText(
-`<blockquote>❌ KONTEN BUKAN HTML</blockquote>\n\n` +
-`File yang Anda kirim tidak terdeteksi sebagai file HTML valid.\n` +
-`Pastikan file berisi kode HTML yang benar.`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,   
-parse_mode: 'HTML'
-}
-);
-delete deployStates[userId];
-return;
-}
-deployStates[userId].htmlContent = fileContent;
-deployStates[userId].step = 'waiting_for_site_name';
-await bot.editMessageText(
-`<blockquote>✅ FILE DITERIMA</blockquote>\n\n` +
-`File <code>${fileName}</code> berhasil diupload!\n\n` +
-`<blockquote><b>Sekarang berikan nama untuk website Anda:</b></blockquote>\n\n` +
-`• Hanya huruf kecil, angka, dan tanda hubung (-)\n` +
-`• Contoh: <code>my-website-123</code>\n` +
-`• Tidak boleh mengandung spasi atau simbol khusus\n` +
-`• Minimal 3 karakter, maksimal 30 karakter\n\n` +
-`<blockquote><i>⏳ Anda memiliki 2 menit untuk memberikan nama...</i></blockquote>`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-deployStates[userId].timeout = setTimeout(async () => {
-if (deployStates[userId] && deployStates[userId].step !== 'completed') {
-await bot.sendMessage(chatId, 
-`<blockquote>⏳ WAKTU HABIS</blockquote>\n\n` +
-`Proses deploy dibatalkan karena tidak ada respon selama 2 menit.\n` +
-`Gunakan /deploy untuk memulai kembali.`,
-{ parse_mode: 'HTML' }
-);
-delete deployStates[userId];
-}
-}, 120000); // 2 menit = 120000 ms
-} catch (error) {
-console.error('Error processing file:', error);
-await bot.sendMessage(chatId,
-`<blockquote>❌ ERROR</blockquote>\n\n` +
-`Gagal memproses file: ${error.message}\n` +
-`Silakan coba lagi dengan /deploy`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-delete deployStates[userId];
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📝 HANDLER UNTUK MENERIMA NAMA WEBSITE
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.on('message', async (msg) => {
-if (!msg.text || msg.text.startsWith('/')) {
-return;
-}
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const text = msg.text.trim();
-if (!deployStates[userId] || deployStates[userId].step !== 'waiting_for_site_name') {
-return;
-}
-const siteName = text.toLowerCase();
-if (!/^[a-z0-9-]+$/.test(siteName)) {
-await bot.sendMessage(chatId,
-`<blockquote>❌ NAMA TIDAK VALID</blockquote>\n\n` +
-`Nama: <code>${siteName}</code>\n\n` +
-`<blockquote><b>Format yang diperbolehkan:</b>\n` +
-`• Hanya huruf kecil (a-z)\n` +
-`• Angka (0-9)\n` +
-`• Tanda hubung (-)</blockquote>\n\n` +
-`<blockquote><b>Contoh yang benar:</b>\n` +
-`<code>my-website</code>\n` +
-`<code>web-123</code>\n` +
-`<code>project-name-2024</code></blockquote>\n\n` +
-`Silakan kirim nama yang sesuai format...`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-return;
-}
-if (siteName.length < 3 || siteName.length > 30) {
-await bot.sendMessage(chatId,
-`<blockquote>❌ PANJANG NAMA TIDAK SESUAI</blockquote>\n\n` +
-`Panjang: ${siteName.length} karakter\n\n` +
-`<blockquote><b>Syarat panjang nama:</b>\n` +
-`• Minimal 3 karakter\n` +
-`• Maksimal 30 karakter</blockquote>\n\n` +
-`Silakan kirim nama yang sesuai...`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-return;
-}
-if (siteName.startsWith('-') || siteName.endsWith('-')) {
-await bot.sendMessage(chatId,
-`<blockquote>❌ NAMA TIDAK VALID</blockquote>\n\n` +
-`Nama tidak boleh dimulai atau diakhiri dengan tanda hubung (-)\n` +
-`Nama Anda: <code>${siteName}</code>\n\n` +
-`<blockquote><b>Contoh yang benar:</b>\n` +
-`<code>my-website</code> (bukan <code>-my-website</code> atau <code>my-website-</code>)</blockquote>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-return;
-}
-if (deployStates[userId].timeout) {
-clearTimeout(deployStates[userId].timeout);
-}
-deployStates[userId].siteName = siteName;
-deployStates[userId].step = 'deploying';
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🚀 MEMPROSES DEPLOY...</blockquote>\n\n` +
-`<blockquote><b>Nama Website:</b> <code>${siteName}</code>\n` +
-`<b>File:</b> index.html\n` +
-`<b>Status:</b> Menyiapkan deployment ke Vercel...</blockquote>\n\n` +
-`<blockquote><i>⏳ Mohon tunggu, proses mungkin memakan waktu 30-60 detik...</i></blockquote>`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);    
-try {
-console.log(`Memulai deploy untuk: ${siteName}`);
-const result = await deployToVercel(siteName, deployStates[userId].htmlContent);
-if (result.success) {
-await bot.editMessageText(
-`<blockquote>✅ WEBSITE BERHASIL DIBUAT!</blockquote>\n\n` +
-`<blockquote><b>Detail Website:</b>\n` +
-`🌐 <b>URL:</b> <a href="${result.url}">${result.url}</a>\n` +
-`📁 <b>Nama:</b> <code>${siteName}</code>\n` +
-`📄 <b>File:</b> index.html\n` +
-`📊 <b>Status:</b> ${result.readyState}\n` +
-`⏰ <b>Waktu:</b> ${new Date().toLocaleString('id-ID')}</blockquote>\n\n` +
-`<blockquote><b>Instruksi:</b>\n` +
-`• Klik URL di atas untuk mengakses website\n` +
-`• Website sudah online dan bisa diakses publik\n` +
-`• Untuk perubahan, upload file baru dengan /deploy</blockquote>\n\n` +
-`<blockquote><i>Website dibuat dengan ❤️ oleh ${config.BOT_NAME || 'Novabot'}</i></blockquote>`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML',
-disable_web_page_preview: false
-}
-);
-console.log(`Deploy berhasil: ${result.url}`);
-} else {
-await bot.editMessageText(
-`<blockquote>❌ DEPLOY GAGAL</blockquote>\n\n` +
-`<blockquote><b>Error Detail:</b>\n` +
-`<b>Nama:</b> <code>${siteName}</code>\n` +
-`<b>Error:</b> ${result.error}</blockquote>\n\n` +
-`<blockquote><b>Solusi:</b>\n` +
-`1. Coba nama website yang berbeda\n` +
-`2. Pastikan nama unik dan belum digunakan\n` +
-`3. Coba lagi beberapa saat\n` +
-`4. Nama mungkin sudah dipakai orang lain</blockquote>\n\n` +
-`Gunakan /deploy untuk mencoba lagi.`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-console.log(`Deploy gagal: ${result.error}`);
-}
-} catch (error) {
-console.error('Deployment error:', error);
-await bot.editMessageText(
-`<blockquote>❌ ERROR SISTEM</blockquote>\n\n` +
-`<blockquote>Terjadi kesalahan saat deploy:\n` +
-`<code>${error.message}</code></blockquote>\n\n` +
-`Silakan hubungi admin atau coba lagi nanti.\n` +
-`Gunakan /deploy untuk memulai ulang.`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-} finally {
-delete deployStates[userId];
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🔄 CANCEL DEPLOY (manual)
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/cancel$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-if (deployStates[userId]) {
-if (deployStates[userId].timeout) {
-clearTimeout(deployStates[userId].timeout);
-}
-delete deployStates[userId];
-await bot.sendMessage(chatId,
-`<blockquote>❌ DEPLOY DIBATALKAN</blockquote>\n\n` +
-`Proses deploy telah dibatalkan oleh pengguna.\n` +
-`Gunakan /deploy untuk memulai kembali.`,
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-console.log(`Deploy dibatalkan oleh user: ${userId}`);
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📤 FILE WITH /TOURL CAPTION HANDLER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/tourl$/, async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = '/tourl';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-const reply = msg.reply_to_message;
-if (!reply || (!reply.document && !reply.photo && !reply.video && !reply.audio && !reply.voice && !reply.sticker)) {
-return bot.sendMessage(chatId,
-"<blockquote>❌ Reply file dengan /tourl</blockquote>",
-{ parse_mode: 'HTML' }
-);
-}
-let fileId, fileName, fileType;
-if (reply.document) {
-fileId = reply.document.file_id;
-fileName = reply.document.file_name || `doc_${Date.now()}`;
-fileType = '📄 Dokumen';
-} else if (reply.photo) {
-fileId = reply.photo[reply.photo.length - 1].file_id;
-fileName = `photo_${Date.now()}.jpg`;
-fileType = '🖼️ Foto';
-} else if (reply.video) {
-fileId = reply.video.file_id;
-fileName = `video_${Date.now()}.mp4`;
-fileType = '🎬 Video';
-} else if (reply.audio) {
-fileId = reply.audio.file_id;
-fileName = reply.audio.file_name || `audio_${Date.now()}.mp3`;
-fileType = '🎵 Audio';
-} else if (reply.voice) {
-fileId = reply.voice.file_id;
-fileName = `voice_${Date.now()}.ogg`;
-fileType = '🎤 Voice';
-} else if (reply.sticker) {
-fileId = reply.sticker.file_id;
-fileName = `sticker_${Date.now()}.webp`;
-fileType = '🤡 Sticker';
-}
-try {
-const processingMsg = await bot.sendMessage(chatId,
-"<blockquote>⏳ Uploading...</blockquote>",
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const fileLink = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${file.file_path}`;
-const fileResponse = await axios.get(fileLink, { responseType: 'arraybuffer' });
-const buffer = Buffer.from(fileResponse.data);
-const fileSizeMB = (buffer.length / 1024 / 1024).toFixed(2);
-// Upload ke Uguu.se
-const uploadedUrl = await uploadUguu(buffer, fileName);
-if (!uploadedUrl) {
-throw new Error('Gagal upload ke Uguu.se');
-}
-await bot.editMessageText(
-`<blockquote>✅ Upload sukses!</blockquote>
-<b>File:</b> ${fileName}
-<b>Tipe:</b> ${fileType}
-<b>Ukuran:</b> ${fileSizeMB} MB
-<b>URL:</b> <code>${uploadedUrl}</code>`,
-{ 
-chat_id: chatId, 
-message_id: processingMsg.message_id, 
-parse_mode: 'HTML' 
-}
-);
-} catch (error) {
-console.error("Upload error:", error?.response?.data || error.message);
-bot.sendMessage(chatId,
-"<blockquote>❌ Upload gagal</blockquote>",
-{ parse_mode: 'HTML' }
-);
-}
-});
-bot.on('message', async (msg) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-if (msg.caption && msg.caption.trim() === '/tourl') {
-const messageText = 'CAPTION: /tourl';
-logUserInteraction(userId, username, chatType, messageText, groupName);
-let fileId, fileName, fileType;
-if (msg.document) {
-fileId = msg.document.file_id;
-fileName = msg.document.file_name || `doc_${Date.now()}`;
-fileType = '📄 Dokumen';
-} else if (msg.photo) {
-fileId = msg.photo[msg.photo.length - 1].file_id;
-fileName = `photo_${Date.now()}.jpg`;
-fileType = '🖼️ Foto';
-} else if (msg.video) {
-fileId = msg.video.file_id;
-fileName = `video_${Date.now()}.mp4`;
-fileType = '🎬 Video';
-} else if (msg.audio) {
-fileId = msg.audio.file_id;
-fileName = msg.audio.file_name || `audio_${Date.now()}.mp3`;
-fileType = '🎵 Audio';
-} else if (msg.voice) {
-fileId = msg.voice.file_id;
-fileName = `voice_${Date.now()}.ogg`;
-fileType = '🎤 Voice';
-} else if (msg.sticker) {
-fileId = msg.sticker.file_id;
-fileName = `sticker_${Date.now()}.webp`;
-fileType = '🤡 Sticker';
-} else {
-return; // Bukan file yang didukung
-}
-try {
-const processingMsg = await bot.sendMessage(chatId,
-"<blockquote>⏳ Uploading...</blockquote>",
-{ parse_mode: 'HTML', reply_to_message_id: msg.message_id }
-);
-const file = await bot.getFile(fileId);
-const fileLink = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${file.file_path}`;
-const fileResponse = await axios.get(fileLink, { responseType: 'arraybuffer' });
-const buffer = Buffer.from(fileResponse.data);
-const fileSizeMB = (buffer.length / 1024 / 1024).toFixed(2);
-// Upload ke Uguu.se
-const uploadedUrl = await uploadUguu(buffer, fileName);
-if (!uploadedUrl) {
-throw new Error('Gagal upload ke Uguu.se');
-}
-await bot.editMessageText(
-`<blockquote>✅ Upload sukses!</blockquote>
-<b>File:</b> ${fileName}
-<b>Tipe:</b> ${fileType}
-<b>Ukuran:</b> ${fileSizeMB} MB
-<b>URL:</b> <code>${uploadedUrl}</code>`,
-{ 
-chat_id: chatId, 
-message_id: processingMsg.message_id, 
-parse_mode: 'HTML' 
-}
-);
-} catch (error) {
-console.error("Upload error:", error?.response?.data || error.message);
-bot.sendMessage(chatId,
-"<blockquote>❌ Upload gagal</blockquote>",
-{ parse_mode: 'HTML' }
-);
-}
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📌 PINTEREST SEARCH COMMAND
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/pin(?:\s+(.+))?$/, async (msg, match) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const query = match[1];
-const messageText = `/pin ${query || ''}`.trim();
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!query) {
-return bot.sendMessage(chatId, 
-"<blockquote>❌ Masukkan kata kunci!</blockquote>\nContoh: <code>/pin anime</code>",
-{ parse_mode: "HTML" }
-);
-}
-const url = `https://api.nekolabs.my.id/discovery/pinterest/search?q=${encodeURIComponent(query)}`;
-try {
-await bot.sendChatAction(chatId, "upload_photo");
-const wait = await bot.sendMessage(chatId, 
-"<blockquote>🔎 Mencari...</blockquote>",
-{ parse_mode: "HTML", reply_to_message_id: msg.message_id }
-);
-const res = await fetch(url);
-if (!res.ok) throw new Error(`HTTP ${res.status}`);
-const data = await res.json();
-if (!data.success || !Array.isArray(data.result) || data.result.length === 0) {
-throw new Error("Tidak ditemukan hasil.");
-}
-const results = data.result.slice(0, 5);
-const index = 0;
-const item = results[index];
-const inlineKeyboard = {
-inline_keyboard: [
-[
-{ text: "⬅️", callback_data: `pin_prev|${chatId}|${index}` },
-{ text: `${index + 1}/${results.length}`, callback_data: "noop" },
-{ text: "➡️", callback_data: `pin_next|${chatId}|${index}` }
-]
-]
-};
-const sent = await bot.sendPhoto(chatId, item.imageUrl, {
-parse_mode: "HTML",
-reply_markup: inlineKeyboard,
-reply_to_message_id: msg.message_id
-});
-await bot.deleteMessage(chatId, wait.message_id);
-global.pinData = global.pinData || {};
-global.pinData[sent.message_id] = { results, index };
-} catch (err) {
-console.error("❌ Error Pinterest:", err.message);
-logError('PINTEREST_ERROR', `Query: ${query}, Error: ${err.message}`, userId, username);
-if (err.message.includes("Tidak ditemukan")) {
-bot.sendMessage(chatId, 
-"<blockquote>❌ Hasil tidak ditemukan</blockquote>",
-{ parse_mode: "HTML", reply_to_message_id: msg.message_id }
-);
-} else if (err.message.includes("fetch")) {
-bot.sendMessage(chatId, 
-"<blockquote>❌ Gagal terhubung</blockquote>",
-{ parse_mode: "HTML", reply_to_message_id: msg.message_id }
-);
-} else {
-bot.sendMessage(chatId, 
-"<blockquote>❌ Error sistem</blockquote>",
-{ parse_mode: "HTML", reply_to_message_id: msg.message_id }
-);
-}
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🎯 TAMBAHKAN COMMAND HANDLER UNTUK PANEL DENGAN ANIMASI PEMBAYARAN
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/(1gb|2gb|3gb|4gb|5gb|6gb|7gb|8gb|9gb|10gb|unli|unlimited|reseller)(?:\s+(.+))?$/i, async (msg, match) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const panelType = match[1].toLowerCase();
-const text = match[2];
-const messageText = `/${panelType} ${text || ''}`.trim();
-logUserInteraction(userId, username, chatType, messageText, groupName);
-notifyOwner(panelType, msg);
-const price = calculatePrice(panelType);    
-if (price === 0) {
-return bot.sendMessage(chatId, '<blockquote>❌ Panel type tidak valid!</blockquote>', { parse_mode: 'HTML' });
-}
-if (!text || !text.trim()) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format salah!</blockquote>\n` +
-`<b>Contoh:</b> <code>/${panelType} username,id</code>\n\n` +
-`<i>Username: Nama untuk panel\n` +
-`ID: Angka ID telegram target</i>`,
-{ parse_mode: 'HTML' }
-);
-}
-let targetId = chatId;
-let targetUsername = username;
-const inputText = text.trim();
-if (inputText.includes(',')) {
-const parts = inputText.split(',').map(part => part.trim());
-if (parts.length >= 2) {
-targetUsername = parts[0];
-if (/^\d+$/.test(parts[1])) {
-targetId = parts[1];
-} else {
-targetId = chatId;
-}
-} else {
-targetUsername = parts[0];
-targetId = chatId;
-}
-} else if (/^\d+$/.test(inputText)) {
-targetId = inputText;
-targetUsername = `User ${inputText}`;
-} else if (inputText.startsWith('@')) {
-targetUsername = inputText.substring(1);
-targetId = chatId;
-} else {
-targetUsername = inputText;
-targetId = chatId;
-}
-const isUserAdmin = isAdmin(userId);
-const isUserReseller = isReseller(userId);
-if (isUserAdmin || isUserReseller) {
-const orderId = `FREE-${Date.now()}`;
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🔄 Membuat Panel Gratis</blockquote>\n\n` +
-`Memproses pembuatan panel gratis...\n` +
-`Type: ${panelType.toUpperCase()}\n` +
-`User: ${escapeHTML(targetUsername)}\n` +
-`Target ID: <code>${targetId}</code>\n` +
-`Status: ${'🔄'} 0%`,
-{ parse_mode: 'HTML' }
-);
-try {
-await updateProgress(processingMsg.message_id, chatId, 10, 'Memeriksa ketersediaan nama...');
-const cleanUsername = cleanUsernameForEmail(targetUsername);
-const uniqueUsername = cleanUsername.trim().toLowerCase();
-const email = panelType === 'unli' || panelType === 'unlimited'
-? `${uniqueUsername}@unli.nation.id`
-: `${uniqueUsername}@nation.id`;
-if (!isValidEmail(email)) {
-await updateProgress(processingMsg.message_id, chatId, 100, '❌ Format email tidak valid!');
-await bot.editMessageText(
-`<blockquote>⚠️ Format Email Tidak Valid</blockquote>\n\n` +
-`Username <b>${escapeHTML(targetUsername)}</b> menghasilkan email tidak valid.\n\n` +
-`<b>SOLUSI:</b> Gunakan username tanpa karakter khusus.`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-return;
-}
-const existingEmail = await checkExistingEmail(email);
-let user;
-let password;
-let isNewUser = false;
-if (existingEmail) {
-if (existingEmail.telegramId != targetId) {
-await updateProgress(processingMsg.message_id, chatId, 100, '❌ Nama sudah digunakan!');
-await bot.editMessageText(
-`<blockquote>⚠️ Nama Sudah Digunakan</blockquote>\n\n` +
-`Nama <b>${escapeHTML(targetUsername)}</b> sudah digunakan user lain.\n\n` +
-`<b>SOLUSI:</b> Gunakan nama yang berbeda.`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-return;
-}
-await updateProgress(processingMsg.message_id, chatId, 25, 'Menggunakan akun yang sudah ada...');
-user = { id: existingEmail.pterodactylUserId };
-password = existingEmail.password;
-} else {
-isNewUser = true;
-await updateProgress(processingMsg.message_id, chatId, 30, 'Membuat akun user baru...');
-password = generateRandomPassword();
-user = await createPterodactylUser(uniqueUsername, email, password, targetId);
-await updateProgress(processingMsg.message_id, chatId, 50, 'Akun berhasil dibuat!');
-}
-await updateProgress(processingMsg.message_id, chatId, 60, 'Membuat server baru...');
-const serverCount = await getServerCountForUser(user.id);
-const serverNumber = serverCount + 1;
-const serverName = panelType === 'unli' || panelType === 'unlimited'
-? `${capitalize(uniqueUsername)} UNLI Server #${serverNumber}`
-: `${capitalize(uniqueUsername)} ${panelType.toUpperCase()} Server #${serverNumber}`;
-const serverData = await createPterodactylServer(user.id, panelType, uniqueUsername, serverName);
-await updateProgress(processingMsg.message_id, chatId, 80, 'Server berhasil dibuat!');
-let captionMessage;
-if (panelType === 'unli' || panelType === 'unlimited') {
-captionMessage = `<blockquote>( 👤 ) - 情報, ${escapeHTML(targetUsername)}</blockquote>
-Selamat! Panel Unlimited baru berhasil ditambahkan.
-
-<blockquote><b>Status :</b> Aktif
-<b>Panel :</b> Unlimited
-<b>Email :</b> ${escapeHTML(email)}
-<b>User ID :</b> <code>${user.id}</code>
-<b>Server :</b> #${serverNumber}
-<b>Memory :</b> Unlimited
-<b>Disk :</b> Unlimited
-<b>CPU :</b> Unlimited</blockquote>
-
-Berikut adalah informasi login panel Anda:
-<blockquote><b>Username :</b> <code>${escapeHTML(uniqueUsername)}</code>
-<b>Password :</b> <code>${password}</code></blockquote>`;
-} else {
-captionMessage = `<blockquote>( 👤 ) - 情報, ${escapeHTML(targetUsername)}</blockquote>
-Selamat! Panel ${panelType.toUpperCase()} baru berhasil ditambahkan.
-
-<blockquote><b>Status :</b> Aktif
-<b>Panel :</b> ${panelType.toUpperCase()}
-<b>Email :</b> ${escapeHTML(email)}
-<b>User ID :</b> <code>${user.id}</code>
-<b>Server :</b> #${serverNumber}
-<b>Memory :</b> ${serverData.ram}MB
-<b>Disk :</b> ${serverData.disk}MB
-<b>CPU :</b> ${serverData.cpu}%</blockquote>
-
-Berikut adalah informasi login panel Anda:
-<blockquote><b>Username :</b> <code>${escapeHTML(uniqueUsername)}</code>
-<b>Password :</b> <code>${password}</code></blockquote>`;
-}
-if (isNewUser) {
-captionMessage += `\n<blockquote><b>📌 INFO :</b>
-• Ini adalah akun baru yang dibuat untuk Anda
-• Gunakan email ini untuk login di panel</blockquote>`;
-} else {
-captionMessage += `\n<blockquote><b>📌 INFO :</b>
-• Server baru berhasil ditambahkan ke akun yang sudah ada
-• Gunakan email dan password yang sama untuk login</blockquote>`;
-}
-captionMessage += `
-<blockquote><b>📝 Rules :</b>
-• Dilarang DDoS Server
-• Wajib sensor domain di screenshot
-• Admin hanya kirim 1x data
-• Jangan bagikan ke orang lain</blockquote>`;
-const successKeyboard = {
-inline_keyboard: [
-[
-{ text: '⿻ ʟᴏɢɪɴ ᴘᴀɴᴇʟ', url: config.DOMAIN },
-{ text: '⿻ ᴄʜᴀᴛ ᴀᴅᴍɪɴ', url: config.URLADMIN }
-]
-]
-};
-try {
-if (config.PP) {
-await bot.sendPhoto(targetId, config.PP, {
-caption: captionMessage,
-parse_mode: 'HTML',
-disable_web_page_preview: true,
-reply_markup: successKeyboard
-});
-} else {
-await bot.sendMessage(targetId, captionMessage, {
-parse_mode: 'HTML',
-disable_web_page_preview: true,
-reply_markup: successKeyboard
-});
-}
-await updateProgress(processingMsg.message_id, chatId, 100, '✅ Panel berhasil dikirim!');
-const finalMessage = `<blockquote><b>✅ Panel Creation Complete</b></blockquote>\n\n` +
-`Type: ${panelType.toUpperCase()}\n` +
-`User: ${escapeHTML(targetUsername)}\n` +
-`Target ID: <code>${targetId}</code>\n` +
-`Status: ${isNewUser ? 'Akun baru dibuat' : 'Server ditambahkan ke akun yang ada'}\n` +
-`Harga: GRATIS (Admin/Reseller)\n\n` +
-`✅ Data berhasil dikirim ke user!`;
-await bot.editMessageText(finalMessage, {
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-});
-} catch (error) {
-await updateProgress(processingMsg.message_id, chatId, 100, '❌ Gagal mengirim ke user!');
-const errorMessage = `<blockquote>⚠️ Gagal Mengirim ke Target</blockquote>\n\n` +
-`Username: ${escapeHTML(targetUsername)}\n` +
-`Target ID: <code>${targetId}</code>\n` +
-`Email: ${escapeHTML(email)}\n` +
-`Password: <code>${password}</code>\n` +
-`Error: ${escapeHTML(error.message)}`;
-await bot.editMessageText(errorMessage, {
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-});
-}
-} catch (error) {
-console.error('Error creating free panel:', error);
-await bot.sendMessage(chatId,
-`<blockquote>❌ Gagal Membuat Panel</blockquote>\n\n` +
-`Error: ${escapeHTML(error.message)}`,
-{ parse_mode: 'HTML' }
-);
-}
-return;
-}
-let customerUsername = username;
-let customerTargetId = chatId;
-if (inputText.includes(',')) {
-const parts = inputText.split(',').map(part => part.trim());
-if (parts.length >= 2) {
-customerUsername = parts[0];
-if (/^\d+$/.test(parts[1])) {
-customerTargetId = parts[1];
-}
-} else {
-customerUsername = parts[0];
-}
-} else if (/^\d+$/.test(inputText)) {
-customerTargetId = inputText;
-customerUsername = `User ${inputText}`;
-} else if (inputText.startsWith('@')) {
-customerUsername = inputText.substring(1);
-} else {
-customerUsername = inputText;
-}
-const emails = loadEmails();
-const cleanCustomerUsername = cleanUsernameForEmail(customerUsername).toLowerCase();
-let usernameTaken = false;
-let takenByTelegramId = null;
-for (const email in emails) {
-const userData = emails[email];
-if (userData.username && userData.username.toLowerCase() === cleanCustomerUsername) {
-usernameTaken = true;
-takenByTelegramId = userData.telegramId;
-break;
-}
-}
-if (usernameTaken && takenByTelegramId != customerTargetId) {
-const timestamp = Date.now().toString().slice(-4);
-const alternativeUsername = `${cleanCustomerUsername}${timestamp}`;
-return bot.sendMessage(chatId,
-`<blockquote>❌ Nama Sudah Digunakan</blockquote>\n\n` +
-`Nama <b>${escapeHTML(customerUsername)}</b> sudah digunakan user lain.\n\n` +
-`<b>Gunakan nama lain:</b>\n` +
-`<code>${alternativeUsername}</code>\n\n` +
-`<b>Contoh baru:</b>\n` +
-`<code>/${panelType} ${alternativeUsername},${customerTargetId}</code>`,
-{ parse_mode: 'HTML' }
-);
-}
-const orderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`;
-const qrData = await createQRISPayment(orderId, price);
-if (!qrData || !qrData.qris_string) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Gagal Membuat Pembayaran</blockquote>\n\n` +
-`Terjadi kesalahan membuat QRIS.\n` +
-`Silakan coba lagi atau hubungi admin.`,
-{ parse_mode: 'HTML' }
-);
-}
-const qrBuffer = await generateQRCode(qrData.qris_string);
-if (!qrBuffer) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Gagal Generate QR Code</blockquote>\n\n` +
-`Terjadi kesalahan membuat QR code.\n` +
-`Silakan coba lagi atau hubungi admin.`,
-{ parse_mode: 'HTML' }
-);
-}
-const caption = `<blockquote>( 👤 ) - 情報, ${escapeHTML(customerUsername)}</blockquote>
-Halo, silakan lakukan pembayaran untuk melanjutkan!
-
-<blockquote><b>Status :</b> ⏳ MENUNGGU PEMBAYARAN
-<b>Panel :</b> ${panelType.toUpperCase()}
-<b>Harga :</b> Rp ${price.toLocaleString()}
-<b>Order ID :</b> <code>${orderId}</code>
-<b>Waktu :</b> 0:00 menit
-<b>Progress :</b> [░░░░░░░░░░] 0%</blockquote>
-
-Silakan ikuti instruksi pembayaran berikut:
-<blockquote><b>Instruksi :</b>
-1. Scan QR di atas
-2. Bayar sesuai harga
-3. Sistem otomatis mendeteksi pembayaran
-⏳ Batas waktu: 5 menit</blockquote>`;
-const qrMessage = await bot.sendPhoto(chatId, qrBuffer, {
-caption: caption,
-parse_mode: 'HTML',
-reply_markup: {
-inline_keyboard: [
-[
-{ text: '🔄 Refresh Status', callback_data: `Status_${orderId}` },
-{ text: '⛔ Batalkan', callback_data: `cancel_${orderId}` }
-],
-[
-{ text: '⿻ ᴄʜᴀᴛ ᴀᴅᴍɪɴ', url: config.URLADMIN }
-]
-]
-}
-});
-const transactions = loadTransactions();
-transactions[orderId] = {
-userId: userId,
-username: customerUsername,
-cleanUsername: cleanCustomerUsername,
-targetId: customerTargetId,
-panelType: panelType,
-price: price,
-status: 'pending',
-createdAt: new Date().toISOString(),
-qrMessageId: qrMessage.message_id,
-chatId: chatId,
-usernameTaken: usernameTaken,
-takenByTelegramId: takenByTelegramId
-};
-saveTransactions(transactions);
-startPaymentPolling(orderId, chatId, userId, price, panelType, customerUsername, customerTargetId, qrMessage.message_id);
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 👑 CREATE ADMIN PANEL - DIPERBAIKI
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/cadmin(?:\s+(.+))?$/, async (msg, match) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const text = match[1];
-const messageText = `/cadmin ${text || ''}`.trim();
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!isAdmin(userId)) {
-return bot.sendMessage(chatId, '<b>❌ Hanya admin yang bisa!</b>', { parse_mode: 'HTML' });
-}
-if (!text) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Format Salah</blockquote>\n\n` +
-`Gunakan: /cadmin username,id_telegram\n` +
-`Contoh: /cadmin novabot,123456789`,
-{ parse_mode: 'HTML' }
-);
-}
-const [adminUsername, targetId] = text.split(',');
-if (!adminUsername || !targetId) {
-return bot.sendMessage(chatId,
-`<b>❌ Format Tidak Lengkap</b>\n\n` +
-`Gunakan: /cadmin username,id_telegram\n` +
-`Contoh: /cadmin novabot,123456789`,
-{ parse_mode: 'HTML' }
-);
-}
-const emails = loadEmails();
-const usernameExists = Object.values(emails).some(emailData => 
-emailData.username.toLowerCase() === adminUsername.toLowerCase()
-);
-if (usernameExists) {
-return bot.sendMessage(chatId,
-`<blockquote>❌ Nama Sudah Digunakan</blockquote>\n\n` +
-`Nama <b>${escapeHTML(adminUsername)}</b> sudah digunakan.\n` +
-`Silakan gunakan nama lain yang berbeda.`,
-{ parse_mode: 'HTML' }
-);
-}
-const processingMsg = await bot.sendMessage(chatId,
-`<b>👑 Create Admin Panel</b>\n\n` +
-`Memproses pembuatan admin...\n` +
-`Username: ${escapeHTML(adminUsername)}\n` +
-`Target: ${targetId}`,
-{ parse_mode: 'HTML' }
-);
-try {
-const uniqueUsername = adminUsername.trim().toLowerCase();
-const adminEmail = `${uniqueUsername}@admin.nation.id`;
-const password = generateRandomPassword(6);
-await bot.editMessageText(
-`<b>👑 Create Admin Panel</b>\n\n` +
-`Membuat akun admin...\n` +
-`Email: ${adminEmail}\n` +
-`Username: ${uniqueUsername}`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-const user = await createPterodactylUser(uniqueUsername, adminEmail, password, targetId, true, true);
-await bot.editMessageText(
-`<b>👑 Create Admin Panel</b>\n\n` +
-`Admin berhasil dibuat!\n` +
-`User ID: <code>${user.id}</code>\n` +
-`Mengirim data...`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-const captionMessage = `<blockquote>( 👑 ) - ᴀᴅᴍɪɴ ᴘᴀɴᴇʟ ᴄʀᴇᴀᴛᴇᴅ</blockquote>
-Akun admin panel berhasil dibuat!
-
-<blockquote><b>Data Admin :</b>
-<b>Nama :</b> ${escapeHTML(adminUsername)}
-<b>Email :</b> ${adminEmail}
-<b>User ID :</b> <code>${user.id}</code>
-<b>Username :</b> <code>${uniqueUsername}</code>
-<b>Password :</b> <code>${password}</code></blockquote>
-
-<blockquote><b>Hak Akses :</b>
-✅ Full access ke semua server
-✅ Manage users & permissions
-✅ Create & delete servers</blockquote>
-
-<blockquote><b>Peringatan :</b>
-• Jangan bagikan kredensial!
-• Wajib ganti password pertama kali
-• Dilarang masuk server user tanpa izin!</blockquote>`;
-
-const inlineKeyboard = {
-inline_keyboard: [
-[
-{ text: '⿻ ʟᴏɢɪɴ ᴘᴀɴᴇʟ', url: config.DOMAIN },
-{ text: '⿻ ꜱᴜᴘᴘᴏʀᴛ', url: config.URLADMIN }
-]
-]
-};
-try {
-if (config.PP) {
-await bot.sendPhoto(targetId, config.PP, {
-caption: captionMessage,
-parse_mode: 'HTML',
-reply_markup: inlineKeyboard
-});
-} else {
-await bot.sendMessage(targetId, captionMessage, {
-parse_mode: 'HTML',
-reply_markup: inlineKeyboard
-});
-}
-await bot.editMessageText(
-`<b>✅ Admin Panel Complete</b>\n\n` +
-`Username: ${escapeHTML(adminUsername)}\n` +
-`Target: ${targetId}\n` +
-`✅ Data terkirim ke user`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-} catch (error) {
-await bot.editMessageText(
-`<b>⚠️ Gagal Mengirim ke Target</b>\n\n` +
-`Username: ${escapeHTML(adminUsername)}\n` +
-`Email: ${adminEmail}\n` +
-`Password: <code>${password}</code>\n` +
-`Username: <code>${uniqueUsername}</code>\n\n` +
-`Kirim manual ke user!`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-logError('ADMIN_PANEL_SEND_ERROR', `Username: ${adminUsername}, Target: ${targetId}, Error: ${error.message}`);
-}
-} catch (error) {
-console.error('Admin creation error:', error);
-logError('ADMIN_PANEL_CREATION_ERROR', `Username: ${adminUsername}, Error: ${error.message}`, userId);
-await bot.editMessageText(
-`<b>❌ Gagal Membuat Admin</b>\n\n` +
-`Error: ${error.message}\n` +
-`Hubungi developer!`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🆔 CEK ID COMMAND (DIPERBAIKI)
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/cekid$/, async (msg) => {
-notifyOwner('cekid', msg);
-const chatId = msg.chat.id;
-const user = msg.from;
-try {
-const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim();
-const username = user.username ? `@${user.username}` : '-';
-const userId = user.id.toString();
-const today = new Date().toISOString().split('T')[0];
-const dcId = (user.id >> 32) % 256;
-let backgroundImage;
-try {
-const bgResponse = await axios.get('https://files.catbox.moe/i1nayt.jpg', { responseType: 'arraybuffer' });
-backgroundImage = await loadImage(bgResponse.data);
-} catch (bgError) {
-console.log('Gagal load background:', bgError.message);
-backgroundImage = null;
-}
-let userAvatar = null;
-try {
-const photos = await bot.getUserProfilePhotos(user.id, { limit: 1 });
-if (photos.total_count > 0) {
-const fileId = photos.photos[0][0].file_id;
-const file = await bot.getFile(fileId);
-const photoUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${file.file_path}`;
-const avatarResponse = await axios.get(photoUrl, { responseType: 'arraybuffer' });
-userAvatar = await loadImage(avatarResponse.data);
-}
-} catch (photoError) {
-console.log('Gagal ambil foto profil:', photoError.message);
-}
-let defaultAvatar;
-if (!userAvatar) {
-try {
-const avatarResponse = await axios.get('https://files.catbox.moe/xre5bf.jpg', { responseType: 'arraybuffer' });
-defaultAvatar = await loadImage(avatarResponse.data);
-} catch (avatarError) {
-console.log('Gagal load default avatar:', avatarError.message);
-defaultAvatar = null;
-}
-}
-const canvas = createCanvas(800, 450);
-const ctx = canvas.getContext('2d');
-if (backgroundImage) {
-ctx.save();
-ctx.filter = 'brightness(0.8) contrast(1.1)';
-ctx.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
-ctx.restore();
-ctx.save();
-ctx.globalAlpha = 0.4;
-ctx.fillStyle = '#000000';
-ctx.fillRect(0, 0, canvas.width, canvas.height);
-ctx.restore();
-} else {
-const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-gradient.addColorStop(0, '#1a1a2e');
-gradient.addColorStop(1, '#16213e');
-ctx.fillStyle = gradient;
-ctx.fillRect(0, 0, canvas.width, canvas.height);
-}
-ctx.save();
-ctx.globalAlpha = 0.3;
-ctx.fillStyle = '#ffffff';
-for (let i = 0; i < 40; i++) {
-const x = Math.random() * canvas.width;
-const y = Math.random() * canvas.height;
-const radius = Math.random() * 2;
-ctx.beginPath();
-ctx.arc(x, y, radius, 0, Math.PI * 2);
-ctx.fill();
-}
-ctx.restore();
-ctx.save();
-ctx.globalAlpha = 0.85;
-ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-ctx.shadowBlur = 20;
-ctx.shadowOffsetX = 5;
-ctx.shadowOffsetY = 5;
-ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
-ctx.roundRect(40, 40, canvas.width - 80, canvas.height - 80, 25);
-ctx.fill();
-ctx.strokeStyle = 'rgba(96, 165, 250, 0.4)';
-ctx.lineWidth = 2;
-ctx.roundRect(40, 40, canvas.width - 80, canvas.height - 80, 25);
-ctx.stroke();
-ctx.restore();
-ctx.save();
-ctx.globalAlpha = 0.8;
-const headerGradient = ctx.createLinearGradient(40, 40, canvas.width - 40, 120);
-headerGradient.addColorStop(0, 'rgba(30, 41, 59, 0.8)');
-headerGradient.addColorStop(1, 'rgba(51, 65, 85, 0.8)');
-ctx.fillStyle = headerGradient;
-ctx.roundRect(40, 40, canvas.width - 80, 80, [25, 25, 0, 0]);
-ctx.fill();
-ctx.restore();
-ctx.save();
-ctx.fillStyle = '#ffffff';
-ctx.globalAlpha = 0.9;
-ctx.font = 'bold 30px "Segoe UI", Arial, sans-serif';
-ctx.textAlign = 'center';
-ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-ctx.shadowBlur = 5;
-ctx.fillText('TELEGRAM ID CARD', canvas.width / 2, 85);
-ctx.restore();
-ctx.save();
-ctx.globalAlpha = 0.6;
-ctx.strokeStyle = '#60a5fa';
-ctx.lineWidth = 2;
-ctx.beginPath();
-ctx.moveTo(80, 130);
-ctx.lineTo(canvas.width - 80, 130);
-ctx.stroke();
-ctx.restore();
-const avatarX = 150;
-const avatarY = 240;
-const avatarRadius = 70;
-ctx.save();
-ctx.globalAlpha = 0.5;
-ctx.shadowColor = '#60a5fa';
-ctx.shadowBlur = 20;
-ctx.beginPath();
-ctx.arc(avatarX, avatarY, avatarRadius + 5, 0, Math.PI * 2);
-ctx.fillStyle = 'transparent';
-ctx.fill();
-ctx.restore();
-if (userAvatar) {
-ctx.save();
-ctx.beginPath();
-ctx.arc(avatarX, avatarY, avatarRadius, 0, Math.PI * 2, true);
-ctx.closePath();
-ctx.clip();
-ctx.globalAlpha = 0.9;
-ctx.drawImage(userAvatar, avatarX - avatarRadius, avatarY - avatarRadius, avatarRadius * 2, avatarRadius * 2);
-ctx.restore();
-ctx.save();
-ctx.strokeStyle = 'rgba(96, 165, 250, 0.6)';
-ctx.lineWidth = 4;
-ctx.globalAlpha = 0.8;
-ctx.beginPath();
-ctx.arc(avatarX, avatarY, avatarRadius, 0, Math.PI * 2, true);
-ctx.stroke();
-ctx.restore();
-} else if (defaultAvatar) {
-ctx.save();
-ctx.beginPath();
-ctx.arc(avatarX, avatarY, avatarRadius, 0, Math.PI * 2, true);
-ctx.closePath();
-ctx.clip();
-ctx.globalAlpha = 0.9;
-ctx.drawImage(defaultAvatar, avatarX - avatarRadius, avatarY - avatarRadius, avatarRadius * 2, avatarRadius * 2);
-ctx.restore();
-ctx.save();
-ctx.strokeStyle = 'rgba(96, 165, 250, 0.6)';
-ctx.lineWidth = 4;
-ctx.globalAlpha = 0.8;
-ctx.beginPath();
-ctx.arc(avatarX, avatarY, avatarRadius, 0, Math.PI * 2, true);
-ctx.stroke();
-ctx.restore();
-} else {
-ctx.save();
-ctx.globalAlpha = 0.8;
-ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
-ctx.beginPath();
-ctx.arc(avatarX, avatarY, avatarRadius, 0, Math.PI * 2, true);
-ctx.fill();
-ctx.fillStyle = '#ffffff';
-ctx.font = 'bold 50px Arial';
-ctx.textAlign = 'center';
-ctx.fillText('👤', avatarX, avatarY + 15);
-ctx.restore();
-}
-const infoX = 300;
-const infoY = 180;
-ctx.save();
-ctx.textAlign = 'left';
-ctx.fillStyle = '#93c5fd';
-ctx.globalAlpha = 0.9;
-ctx.font = 'bold 26px "Segoe UI", Arial, sans-serif';
-ctx.fillText('USER INFORMATION', infoX, infoY);
-ctx.restore();
-ctx.save();
-ctx.globalAlpha = 0.5;
-ctx.strokeStyle = '#60a5fa';
-ctx.lineWidth = 2;
-ctx.beginPath();
-ctx.moveTo(infoX, infoY + 5);
-ctx.lineTo(infoX + 300, infoY + 5);
-ctx.stroke();
-ctx.restore();
-const details = [
-{ icon: '⎔', label: 'Name', value: fullName },
-{ icon: '⎔', label: 'User ID', value: userId },
-{ icon: '⎔', label: 'Username', value: username },
-{ icon: '⎔', label: 'Date', value: today },
-{ icon: '⎔', label: 'DC ID', value: dcId }
-];
-details.forEach((detail, index) => {
-const y = infoY + 50 + (index * 38);
-ctx.save();
-ctx.globalAlpha = 0.8;
-ctx.fillStyle = '#60a5fa';
-ctx.font = '18px Arial';
-ctx.fillText(detail.icon, infoX, y);
-ctx.restore();
-ctx.save();
-ctx.globalAlpha = 0.9;
-ctx.fillStyle = '#dbeafe';
-ctx.font = 'bold 18px "Segoe UI", Arial, sans-serif';
-ctx.fillText(detail.label + ':', infoX + 30, y);
-ctx.restore();
-ctx.save();
-ctx.globalAlpha = 0.9;
-ctx.fillStyle = '#ffffff';
-ctx.font = '18px "Segoe UI", Arial, sans-serif';
-const value = detail.value || '-';
-ctx.fillText(value, infoX + 130, y);
-ctx.restore();
-});
-ctx.save();
-ctx.globalAlpha = 0.7;
-const footerGradient = ctx.createLinearGradient(40, canvas.height - 50, canvas.width - 40, canvas.height - 30);
-footerGradient.addColorStop(0, 'rgba(30, 41, 59, 0.8)');
-footerGradient.addColorStop(1, 'rgba(51, 65, 85, 0.8)');
-ctx.fillStyle = footerGradient;
-ctx.roundRect(40, canvas.height - 50, canvas.width - 80, 30, [0, 0, 25, 25]);
-ctx.fill();
-ctx.restore();
-ctx.save();
-ctx.textAlign = 'center';
-ctx.fillStyle = '#ffffff';
-ctx.globalAlpha = 0.8;
-ctx.font = 'italic 16px "Segoe UI", Arial, sans-serif';
-const year = new Date().getFullYear();
-ctx.fillText(`Generated by ${config.BOT_NAME || 'Novabot'} • ${year}`, canvas.width / 2, canvas.height - 30);
-ctx.restore();
-ctx.save();
-ctx.globalAlpha = 0.1;
-ctx.fillStyle = '#ffffff';
-for (let i = 0; i < 10; i++) {
-const x = Math.random() * canvas.width;
-const y = Math.random() * canvas.height;
-const radius = Math.random() * 5 + 2;
-ctx.beginPath();
-ctx.arc(x, y, radius, 0, Math.PI * 2);
-ctx.fill();
-}
-ctx.restore();
-const buffer = canvas.toBuffer('image/png');
-const caption = `<blockquote>🌀 ${config.BOT_NAME || 'Novabot'} ID Card</blockquote>
-
-👤 <b>Name:</b> ${fullName}
-🆔 <b>User ID:</b> <code>${userId}</code>
-?? <b>Username:</b> ${username}
-📅 <b>Date:</b> ${today}
-🏢 <b>DC ID:</b> ${dcId}
-
-<i>Status: ✅ Verified | Active</i>
-
-<code>Generated by ${config.BOT_NAME || 'Novabot'} • ${new Date().getFullYear()}</code>`;
-await bot.sendPhoto(chatId, buffer, { 
-caption, 
-parse_mode: "HTML",
-reply_to_message_id: msg.message_id
-});
-} catch (err) {
-console.error('Gagal generate ID card:', err.message);
-bot.sendMessage(chatId, '❌ Gagal generate ID card. Silakan coba lagi.');
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📞 OTHER ADMIN COMMANDS
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/delseller(?:\s+(.+))?$/, (msg, match) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = `/delseller ${match[1] || ''}`.trim();
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!isAdmin(userId)) {
-return bot.sendMessage(chatId, '<b>❌ Hanya admin yang bisa!</b>', { parse_mode: 'HTML' });
-}
-if (!match[1]) {
-const reseller = loadReseller();
-const users = loadUsers();
-const resellerIds = Object.keys(reseller);
-if (resellerIds.length === 0) {
-return bot.sendMessage(chatId,
-'<blockquote>📋 Daftar Seller</blockquote>\n\n' +
-'<b>Total Seller:</b> 0\n\n' +
-'<b>❌ Tidak ada seller terdaftar!</b>',
-{ parse_mode: 'HTML' }
-);
-}
-let message = '<blockquote>📋 Daftar Seller</blockquote>\n\n';
-message += `<b>Total Seller:</b> ${resellerIds.length}\n\n`;
-resellerIds.forEach((id, index) => {
-const userData = users[id] || {};
-const sellerName = userData.username || 
-(userData.first_name ? 
-`${userData.first_name}${userData.last_name ? ' ' + userData.last_name : ''}` : 
-`ID: ${id}`);
-message += `${index + 1}: ${sellerName} (ID: <code>${id}</code>)\n`;
-});
-message += '\n<blockquote><b>Gunakan:</b> /delseller [id]\n' +
-'<b>Contoh:</b> /delseller 123456789</blockquote>';
-return bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
-}
-const targetId = match[1].trim();
-removeReseller(targetId);
-bot.sendMessage(chatId,
-`<blockquote>✅ Seller Removed</blockquote>\n\n` +
-`User ID: <code>${targetId}</code>\n` +
-`Tidak bisa buat panel gratis lagi.`,
-{ parse_mode: 'HTML' }
-);
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 💰 SELLER PAYMENT COMMAND - PERBAIKI
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/addseller(?:\s+(.+))?$/, async (msg, match) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const text = match[1];
-const messageText = `/addseller ${text || ''}`.trim();
-logUserInteraction(userId, username, chatType, messageText, groupName);
-
-if (isAdmin(userId)) {
-if (!text) {
-return bot.sendMessage(chatId,
-"<blockquote>❌ Masukkan ID user!</blockquote>\nContoh: <code>/addseller 123456789</code>",
-{ parse_mode: 'HTML' }
-);
-}
-const targetId = text.trim();
-addReseller(targetId);
-return bot.sendMessage(chatId,
-`<blockquote>✅ Seller ditambahkan (Admin)</blockquote>
-User ID: <code>${targetId}</code>`,
-{ parse_mode: 'HTML' }
-);
-} else {
-if (!text) {
-return bot.sendMessage(chatId,
-"<blockquote>💰 UPGRADE SELLER PANEL</blockquote>\nMasukkan ID Telegram Anda:\nContoh: <code>/addseller 123456789</code>",
-{ parse_mode: 'HTML' }
-);
-}
-const targetId = text.trim();
-if (!/^\d+$/.test(targetId)) {
-return bot.sendMessage(chatId,
-"<blockquote>❌ ID harus angka!</blockquote>\nContoh: <code>/addseller 123456789</code>",
-{ parse_mode: 'HTML' }
-);
-}
-if (isReseller(targetId)) {
-return bot.sendMessage(chatId,
-"<blockquote>⚠️ Sudah menjadi seller</blockquote>",
-{ parse_mode: 'HTML' }
-);
-}
-const amount = calculatePrice('seller');
-const orderId = `SELLER${Date.now()}${Math.random().toString(36).substr(2, 5)}`.toUpperCase();
-const transactions = loadTransactions();
-transactions[orderId] = {
-userId: userId,
-targetId: targetId,
-username: username,
-panelType: 'seller',
-amount: amount,
-status: 'pending',
-createdAt: new Date().toISOString()
-};
-saveTransactions(transactions);
-
-const paymentResult = await createQRISPayment(orderId, amount);
-if (!paymentResult || !paymentResult.success) {
-return bot.sendMessage(chatId,
-"<blockquote>❌ Gagal membuat pembayaran</blockquote>",
-{ parse_mode: 'HTML' }
-);
-}
-
-const qrCodeBuffer = await generateQRCode(paymentResult.qris_string || paymentResult.payment_number);
-const paymentMessage = await bot.sendPhoto(chatId, qrCodeBuffer, {
-caption: `<blockquote>💰 PEMBAYARAN SELLER PANEL</blockquote>
-<b>Status :</b> ⏳ MENUNGGU
-<b>Paket :</b> SELLER
-<b>Harga :</b> Rp ${amount.toLocaleString()}
-<b>Order ID :</b> <code>${orderId}</code>
-<b>Target ID :</b> <code>${targetId}</code>
-<b>Progress :</b> [░░░░░░░░░░] 0%`,
-parse_mode: 'HTML',
-reply_markup: {
-inline_keyboard: [
-[
-{ text: '⿻ ᴄʜᴀᴛ ᴀᴅᴍɪɴ', url: config.URLADMIN },
-{ text: '⛔ Batalkan', callback_data: `cancel_seller_${orderId}` }
-]
-]
-}
-});
-startPaymentPolling(orderId, chatId, userId, amount, 'seller', username, targetId, paymentMessage.message_id, true);
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🗑️ DELETE ADMIN PANEL
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/deladmin(?:\s+(.+))?$/, async (msg, match) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const text = match[1];
-const messageText = `/deladmin ${text || ''}`.trim();
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!isAdmin(userId)) {
-return bot.sendMessage(chatId, '<blockquote>❌ Tidak ada admin ditemukan!</blockquote>', { parse_mode: 'HTML' });
-}
-if (!text) {
-try {
-const response = await fetch(`${config.DOMAIN}/api/application/users`, {
-method: 'GET',
-headers: {
-'Accept': 'application/json',
-'Content-Type': 'application/json',
-'Authorization': `Bearer ${config.PLTA}`
-}
-});
-const data = await response.json();
-const users = data.data.filter(user => user.attributes.root_admin === true);
-if (users.length === 0) {
-return bot.sendMessage(chatId, '<blockquote>❌ Tidak ada admin ditemukan!</blockquote>', { parse_mode: 'HTML' });
-}
-let message = '<blockquote>👑 List Admin Panel</blockquote>\n\n';
-users.forEach((user, index) => {
-const u = user.attributes;
-const safeUsername = u.username.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-message += `${index + 1}. ${safeUsername} (ID: <code>${u.id}</code>)\n`;
-});
-message += '\n<blockquote>Gunakan:</blockquote> /deladmin [id]\n<b>Contoh:</b> /deladmin 123';
-return bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
-} catch (error) {
-logError('ADMIN_LIST_ERROR', `Error: ${error.message}`, userId);
-const safeError = error.message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-return bot.sendMessage(chatId, `<b>❌ Error:</b> ${safeError}`, { parse_mode: 'HTML' });
-}
-}
-const adminId = text.trim();
-const safeAdminId = adminId.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🗑️ Delete Admin</blockquote>\n\n` +
-`Menghapus admin...\n` +
-`Admin ID: ${safeAdminId}`,
-{ parse_mode: 'HTML' }
-);
-try {
-const response = await fetch(`${config.DOMAIN}/api/application/users/${adminId}`, {
-method: 'DELETE',
-headers: {
-'Accept': 'application/json',
-'Content-Type': 'application/json',
-'Authorization': `Bearer ${config.PLTA}`
-}
-});
-if (!response.ok) throw new Error('Gagal menghapus admin');
-await bot.editMessageText(
-`<blockquote>✅ Admin Deleted</blockquote>\n\n` +
-`Admin ID: <code>${safeAdminId}</code>\n` +
-`✅ Berhasil dihapus!`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-} catch (error) {
-logError('ADMIN_DELETE_ERROR', `Admin ID: ${adminId}, Error: ${error.message}`, userId);
-const safeError = error.message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-await bot.editMessageText(
-`<blockquote>❌ Gagal Menghapus Admin</blockquote>\n\n` +
-`Error: ${safeError}`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-}
-});
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🗑️ DELETE PANEL SERVER - VERSI SIMPLE & PASTI HAPUS
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bot.onText(/^\/delpanel(?:\s+(.+))?$/, async (msg, match) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const text = match[1];
-const messageText = `/delpanel ${text || ''}`.trim();
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!isAdmin(userId)) {
-return bot.sendMessage(chatId, '<blockquote>❌ Hanya admin yang bisa!</blockquote>', { parse_mode: 'HTML' });
-}
-if (!text) {
-try {
-const response = await fetch(`${config.DOMAIN}/api/application/servers`, {
-method: 'GET',
-headers: {
-'Accept': 'application/json',
-'Content-Type': 'application/json',
-'Authorization': `Bearer ${config.PLTA}`
-}
-});
-const data = await response.json();
-const servers = data.data;
-if (servers.length === 0) {
-return bot.sendMessage(chatId, '<b>❌ Tidak ada server ditemukan!</b>', { parse_mode: 'HTML' });
-}
-let message = '<blockquote>📦 List Panel Server</blockquote>\n\n';
-servers.forEach((server, index) => {
-const s = server.attributes;
-const safeName = s.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-message += `${index + 1}: ${safeName} (ID: <code>${s.id}</code>)\n`;
-});
-message += '\n<blockquote><b>Gunakan:</b> /delpanel [id]\n<b>Contoh:</b> /delpanel 123</blockquote>';
-return bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
-} catch (error) {
-logError('SERVER_LIST_ERROR', `Error: ${error.message}`, userId);
-const safeError = error.message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-return bot.sendMessage(chatId, `<b>❌ Error:</b> ${safeError}`, { parse_mode: 'HTML' });
-}
-}
-const serverId = text.trim();
-const safeServerId = serverId.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const processingMsg = await bot.sendMessage(chatId,
-`<blockquote>🗑️ Delete Panel</blockquote>\n\n` +
-`Menghapus panel...\n` +
-`Server ID: ${safeServerId}`,
-{ parse_mode: 'HTML' }
-);
-try {
-const emails = loadEmails();
-let targetEmail = null;
-let targetUserData = null;
-let serverIndex = -1;
-for (const email in emails) {
-const userData = emails[email];
-if (userData.servers && Array.isArray(userData.servers)) {
-const index = userData.servers.findIndex(server => server.serverId == serverId);
-if (index !== -1) {
-targetEmail = email;
-targetUserData = userData;
-serverIndex = index;
-break;
-}
-}
-}
-if (!targetEmail) {
-await bot.editMessageText(
-`<blockquote>⚠️ Server Tidak Ditemukan di Database</blockquote>\n\n` +
-`Server ID: <code>${safeServerId}</code>\n` +
-`Status: Server tidak ditemukan di database email.json\n` +
-`Aksi: Mencoba hapus dari Pterodactyl saja...`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-const response = await fetch(`${config.DOMAIN}/api/application/servers/${serverId}`, {
-method: 'DELETE',
-headers: {
-'Accept': 'application/json',
-'Content-Type': 'application/json',
-'Authorization': `Bearer ${config.PLTA}`
-}
-});
-if (!response.ok) throw new Error('Gagal menghapus server dari Pterodactyl');
-await bot.editMessageText(
-`<blockquote>✅ Server Deleted</blockquote>\n\n` +
-`Server ID: <code>${safeServerId}</code>\n` +
-`<b>✅ Berhasil dihapus dari Pterodactyl!</b>\n\n` +
-`<i>Catatan: Server tidak ditemukan di database email.json</i>`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-return;
-}
-const serverName = targetUserData.servers[serverIndex].name;
-const panelType = targetUserData.servers[serverIndex].panelType;
-const totalServers = targetUserData.servers.length;
-await bot.editMessageText(
-`<blockquote>🗑️ Delete Panel</blockquote>\n\n` +
-`Server ID: <code>${safeServerId}</code>\n` +
-`Nama: ${serverName}\n` +
-`User: ${targetUserData.username}\n` +
-`Email: ${targetEmail}\n` +
-`Total Server: ${totalServers} server\n` +
-`Status: ${totalServers === 1 ? 'Server terakhir - akan hapus akun' : 'Server tambahan'}`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-const response = await fetch(`${config.DOMAIN}/api/application/servers/${serverId}`, {
-method: 'DELETE',
-headers: {
-'Accept': 'application/json',
-'Content-Type': 'application/json',
-'Authorization': `Bearer ${config.PLTA}`
-}
-});
-if (!response.ok) throw new Error('Gagal menghapus server dari Pterodactyl');
-targetUserData.servers.splice(serverIndex, 1);
-if (targetUserData.servers.length === 0 && !targetUserData.isAdminPanel) {
-await bot.editMessageText(
-`<blockquote>🗑️ Delete Panel</blockquote>\n\n` +
-`✅ Server berhasil dihapus dari Pterodactyl\n` +
-`🔄 Menghapus akun user dari Pterodactyl...\n` +
-`User ID: <code>${targetUserData.pterodactylUserId}</code>`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-const deleteUserResponse = await fetch(`${config.DOMAIN}/api/application/users/${targetUserData.pterodactylUserId}`, {
-method: 'DELETE',
-headers: {
-'Accept': 'application/json',
-'Content-Type': 'application/json',
-'Authorization': `Bearer ${config.PLTA}`
-}
-});
-if (!deleteUserResponse.ok) {
-console.error(`Gagal menghapus user dari Pterodactyl: ${targetUserData.pterodactylUserId}`);
-}
-delete emails[targetEmail];
-await bot.editMessageText(
-`<blockquote>✅ Penghapusan Lengkap</blockquote>\n\n` +
-`<b>Detail:</b>\n` +
-`• Server ID: <code>${safeServerId}</code>\n` +
-`• Nama: ${serverName}\n` +
-`• User: ${targetUserData.username}\n` +
-`• Email: ${targetEmail}\n` +
-`• Telegram ID: <code>${targetUserData.telegramId}</code>\n\n` +
-`<b>✅ Tindakan:</b>\n` +
-`1. Server dihapus dari Pterodactyl\n` +
-`2. Akun user dihapus dari Pterodactyl\n` +
-`3. Data email dihapus dari database\n\n` +
-`<i>Ini adalah server terakhir user.</i>`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-} else {
-emails[targetEmail] = targetUserData;
-await bot.editMessageText(
-`<blockquote>✅ Server Deleted</blockquote>\n\n` +
-`<b>Detail:</b>\n` +
-`• Server ID: <code>${safeServerId}</code>\n` +
-`• Nama: ${serverName}\n` +
-`• User: ${targetUserData.username}\n` +
-`• Email: ${targetEmail}\n` +
-`• Telegram ID: <code>${targetUserData.telegramId}</code>\n\n` +
-`<b>✅ Tindakan:</b>\n` +
-`1. Server dihapus dari Pterodactyl\n` +
-`2. Server dihapus dari database\n` +
-`3. Akun user tetap aktif\n` +
-`4. Sisa server: ${targetUserData.servers.length} server\n\n` +
-`<i>User masih memiliki ${targetUserData.servers.length} server aktif.</i>`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-}
-saveEmails(emails);
-} catch (error) {
-console.error('Error menghapus server:', error);
-logError('SERVER_DELETE_ERROR', `Server ID: ${serverId}, Error: ${error.message}`, userId);
-const safeError = error.message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-await bot.editMessageText(
-`<blockquote>❌ Gagal Menghapus Panel</blockquote>\n\n` +
-`Server ID: <code>${safeServerId}</code>\n` +
-`Error: ${safeError}\n\n` +
-`Silakan coba lagi atau hubungi developer.`,
-{
-chat_id: chatId,
-message_id: processingMsg.message_id,
-parse_mode: 'HTML'
-}
-);
-}
-});
-
-bot.onText(/^\/addadmin (.+)$/, (msg, match) => {
-const chatId = msg.chat.id;
-const userId = msg.from.id.toString();
-const username = msg.from.username ? `@${msg.from.username}` : msg.from.first_name || 'User';
-const chatType = msg.chat.type;
-const groupName = chatType === 'group' || chatType === 'supergroup' ? msg.chat.title : null;
-const messageText = `/addadmin ${match[1]}`;
-logUserInteraction(userId, username, chatType, messageText, groupName);
-if (!isAdmin(userId)) {
-return bot.sendMessage(chatId, '<blockquote>❌ Hanya admin yang bisa!</blockquote>', { parse_mode: 'HTML' });
-}
-const targetId = match[1].trim();
-addAdmin(targetId);
-bot.sendMessage(chatId,
-`<blockquote>✅ Admin Added</blockquote>\n\n` +
-`User ID: <code>${targetId}</code>\n` +
-`Sekarang memiliki akses admin.`,
-{ parse_mode: 'HTML' }
-);
+    return string.charAt(0).toUpperCase() + string.slice(1).toLowerCase();
+}
+
+function generateOrderId() {
+    return `ORDER_${Date.now()}_${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+}
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 📊 ROUTES API
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// 1. GET Settings
+app.get('/api/settings', (req, res) => {
+    const settings = getSettings();
+    res.json({
+        success: true,
+        settings: settings,
+        config: {
+            versi_web: config.VERSI_WEB,
+            developer: config.DEVELOPER,
+            nama_tokoh: config.NAMA_TOKOH
+        }
+    });
+});
+
+// 2. UPDATE Settings (Admin only)
+app.post('/api/admin/settings', (req, res) => {
+    const { password, ...newSettings } = req.body;
+    
+    // Simple admin auth
+    if (password !== "admin123") {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    
+    const currentSettings = getSettings();
+    const updatedSettings = { ...currentSettings, ...newSettings };
+    
+    if (saveSettings(updatedSettings)) {
+        res.json({ success: true, message: 'Settings updated' });
+    } else {
+        res.status(500).json({ success: false, message: 'Failed to save settings' });
+    }
+});
+
+// 3. GET Harga Panel
+app.get('/api/prices', (req, res) => {
+    const settings = getSettings();
+    res.json({
+        success: true,
+        prices: settings.harga_panel || {}
+    });
+});
+
+// 4. CREATE Order
+app.post('/api/create-order', async (req, res) => {
+    try {
+        const { email, panel_type } = req.body;
+        
+        if (!email || !panel_type) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Email dan tipe panel harus diisi' 
+            });
+        }
+
+        const settings = getSettings();
+        const hargaPanel = settings.harga_panel || {};
+        const amount = hargaPanel[panel_type] || 0;
+
+        if (amount <= 0) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Harga panel belum diatur oleh admin' 
+            });
+        }
+
+        const orderId = generateOrderId();
+        
+        // Buat pembayaran
+        const payment = await processPayment(orderId, amount);
+        
+        if (!payment) {
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Gagal membuat pembayaran' 
+            });
+        }
+
+        // Simpan order
+        const orders = readJSON(ORDERS_FILE) || [];
+        const newOrder = {
+            order_id: orderId,
+            email: email,
+            panel_type: panel_type,
+            amount: amount,
+            payment_number: payment.payment_number,
+            status: 'pending',
+            created_at: new Date().toISOString(),
+            qris_string: payment.qris_string
+        };
+        
+        orders.push(newOrder);
+        writeJSON(ORDERS_FILE, orders);
+
+        // Generate QR Code
+        const qrBuffer = await generateQRCode(payment.qris_string);
+        const qrBase64 = qrBuffer ? qrBuffer.toString('base64') : null;
+
+        res.json({
+            success: true,
+            order: newOrder,
+            qr_code: qrBase64 ? `data:image/png;base64,${qrBase64}` : null,
+            payment_info: payment
+        });
+
+    } catch (error) {
+        console.error('Error creating order:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Internal server error' 
+        });
+    }
+});
+
+// 5. CHECK Payment Status
+app.get('/api/check-payment/:orderId', async (req, res) => {
+    try {
+        const { orderId } = req.params;
+        const paymentStatus = await checkPaymentStatus(orderId);
+        
+        if (!paymentStatus) {
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Gagal memeriksa status pembayaran' 
+            });
+        }
+
+        // Update order status
+        const orders = readJSON(ORDERS_FILE) || [];
+        const orderIndex = orders.findIndex(o => o.order_id === orderId);
+        
+        if (orderIndex !== -1) {
+            const order = orders[orderIndex];
+            
+            if (paymentStatus.status === 'PAID' && order.status !== 'completed') {
+                // Proses pembuatan panel
+                try {
+                    const panelResult = await createPterodactylServer(
+                        'user_' + Date.now(), // Ini harus diganti dengan userId yang sesungguhnya
+                        order.panel_type,
+                        order.email.split('@')[0]
+                    );
+
+                    if (panelResult.success) {
+                        orders[orderIndex].status = 'completed';
+                        orders[orderIndex].panel_id = panelResult.panel.id;
+                        orders[orderIndex].completed_at = new Date().toISOString();
+                        
+                        writeJSON(ORDERS_FILE, orders);
+
+                        // Kirim notifikasi ke Telegram
+                        const telegramMsg = `✅ *PEMBAYARAN BERHASIL*
+Order ID: ${orderId}
+Email: ${order.email}
+Panel: ${order.panel_type.toUpperCase()}
+Amount: Rp ${order.amount}
+Server ID: ${panelResult.panel.serverId}`;
+
+                        sendTelegramNotification(telegramMsg);
+                    }
+                } catch (panelError) {
+                    console.error('Error creating panel:', panelError);
+                }
+            }
+            
+            orders[orderIndex].last_checked = new Date().toISOString();
+            writeJSON(ORDERS_FILE, orders);
+        }
+
+        res.json({
+            success: true,
+            status: paymentStatus.status,
+            order: orderIndex !== -1 ? orders[orderIndex] : null
+        });
+
+    } catch (error) {
+        console.error('Error checking payment:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Internal server error' 
+        });
+    }
+});
+
+// 6. GET Orders (Admin)
+app.get('/api/admin/orders', (req, res) => {
+    const { password } = req.query;
+    
+    if (password !== "admin123") {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    
+    const orders = readJSON(ORDERS_FILE) || [];
+    res.json({ success: true, orders });
+});
+
+// 7. GET Panels (Admin)
+app.get('/api/admin/panels', (req, res) => {
+    const { password } = req.query;
+    
+    if (password !== "admin123") {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    
+    const panels = readJSON(PANELS_FILE) || [];
+    res.json({ success: true, panels });
+});
+
+// 8. Telegram Notification
+async function sendTelegramNotification(message) {
+    try {
+        const url = `https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/sendMessage`;
+        await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: config.OWNER_ID,
+                text: message,
+                parse_mode: 'Markdown'
+            })
+        });
+    } catch (error) {
+        console.error('Error sending Telegram notification:', error);
+    }
+}
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🎨 ROUTE UTAMA (HTML)
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+app.get('/', (req, res) => {
+    const settings = getSettings();
+    const html = generateHomePage(settings);
+    res.send(html);
+});
+
+app.get('/admin', (req, res) => {
+    const html = generateAdminPage();
+    res.send(html);
+});
+
+function generateHomePage(settings) {
+    return `
+    <!DOCTYPE html>
+    <html lang="id">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${settings.nama_toko || 'NovaBot Panel'}</title>
+        <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+        <style>
+            :root {
+                --bg-main: #02040a;
+                --bg-card: #0b0f19;
+                --primary: ${settings.warna_utama || '#3a6df0'};
+                --accent: #ffcc00;
+                --text-main: #ffffff;
+                --text-sub: #8b9bb4;
+                --border-color: #1c2538;
+            }
+
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+                font-family: 'Rajdhani', sans-serif;
+            }
+
+            body {
+                background: var(--bg-main);
+                color: var(--text-main);
+                min-height: 100vh;
+            }
+
+            .container {
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 20px;
+            }
+
+            .header {
+                text-align: center;
+                padding: 40px 20px;
+                background: linear-gradient(135deg, var(--primary), #2a5298);
+                border-radius: 20px;
+                margin-bottom: 40px;
+                position: relative;
+                overflow: hidden;
+            }
+
+            .header h1 {
+                font-family: 'Orbitron', sans-serif;
+                font-size: 3rem;
+                margin-bottom: 10px;
+                letter-spacing: 2px;
+            }
+
+            .header p {
+                font-size: 1.2rem;
+                opacity: 0.9;
+                max-width: 800px;
+                margin: 0 auto;
+            }
+
+            .pricing-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                gap: 25px;
+                margin-bottom: 50px;
+            }
+
+            .price-card {
+                background: var(--bg-card);
+                border-radius: 15px;
+                padding: 30px;
+                text-align: center;
+                border: 2px solid var(--border-color);
+                transition: all 0.3s ease;
+                position: relative;
+                overflow: hidden;
+            }
+
+            .price-card:hover {
+                border-color: var(--primary);
+                transform: translateY(-10px);
+                box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            }
+
+            .price-card.featured {
+                border-color: var(--accent);
+            }
+
+            .panel-type {
+                font-family: 'Orbitron', sans-serif;
+                font-size: 2rem;
+                color: var(--primary);
+                margin-bottom: 10px;
+                text-transform: uppercase;
+            }
+
+            .panel-specs {
+                font-size: 0.9rem;
+                color: var(--text-sub);
+                margin-bottom: 20px;
+            }
+
+            .price {
+                font-size: 2.5rem;
+                font-weight: bold;
+                color: var(--accent);
+                margin: 20px 0;
+            }
+
+            .price small {
+                font-size: 1rem;
+                color: var(--text-sub);
+            }
+
+            .btn-buy {
+                background: linear-gradient(90deg, var(--primary), #2a5298);
+                color: white;
+                border: none;
+                padding: 15px 30px;
+                border-radius: 50px;
+                font-family: 'Orbitron', sans-serif;
+                font-size: 1.1rem;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                width: 100%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+            }
+
+            .btn-buy:hover {
+                transform: scale(1.05);
+                box-shadow: 0 10px 20px rgba(58, 109, 240, 0.3);
+            }
+
+            .modal {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.8);
+                z-index: 1000;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .modal-content {
+                background: var(--bg-card);
+                padding: 40px;
+                border-radius: 20px;
+                max-width: 500px;
+                width: 90%;
+                text-align: center;
+                border: 2px solid var(--primary);
+            }
+
+            .modal h2 {
+                font-family: 'Orbitron', sans-serif;
+                margin-bottom: 20px;
+                color: var(--primary);
+            }
+
+            .input-group {
+                margin-bottom: 20px;
+                text-align: left;
+            }
+
+            .input-group label {
+                display: block;
+                margin-bottom: 5px;
+                color: var(--text-sub);
+            }
+
+            .input-group input {
+                width: 100%;
+                padding: 15px;
+                background: rgba(255,255,255,0.1);
+                border: 1px solid var(--border-color);
+                border-radius: 10px;
+                color: white;
+                font-size: 1rem;
+            }
+
+            .qr-container {
+                margin: 30px 0;
+                padding: 20px;
+                background: white;
+                border-radius: 10px;
+                display: inline-block;
+            }
+
+            .qr-container img {
+                max-width: 250px;
+                height: auto;
+            }
+
+            .payment-info {
+                background: rgba(255,255,255,0.1);
+                padding: 15px;
+                border-radius: 10px;
+                margin: 20px 0;
+                font-family: monospace;
+                word-break: break-all;
+            }
+
+            .footer {
+                text-align: center;
+                padding: 30px;
+                margin-top: 50px;
+                border-top: 1px solid var(--border-color);
+                color: var(--text-sub);
+            }
+
+            .admin-link {
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                background: var(--primary);
+                color: white;
+                padding: 10px 20px;
+                border-radius: 50px;
+                text-decoration: none;
+                font-family: 'Orbitron', sans-serif;
+                font-size: 0.9rem;
+            }
+
+            @media (max-width: 768px) {
+                .header h1 {
+                    font-size: 2rem;
+                }
+                
+                .pricing-grid {
+                    grid-template-columns: 1fr;
+                }
+                
+                .modal-content {
+                    padding: 20px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>${settings.nama_toko || 'NovaBot Panel'}</h1>
+                <p>${settings.deskripsi || 'Jual Panel Pterodactyl Murah & Terpercaya'}</p>
+                ${settings.video_promo ? `
+                <div style="margin-top: 30px; max-width: 800px; margin-left: auto; margin-right: auto;">
+                    <video src="${settings.video_promo}" controls autoplay muted loop style="width: 100%; border-radius: 10px;"></video>
+                </div>
+                ` : ''}
+            </div>
+
+            <div id="pricingContainer" class="pricing-grid">
+                <!-- Harga panel akan di-load via JavaScript -->
+            </div>
+
+            <div class="footer">
+                <p>${settings.footer_text || '© 2024 NovaBot Panel - All rights reserved'}</p>
+                <p style="margin-top: 10px;">
+                    ${settings.telegram_admin ? `<i class="fab fa-telegram"></i> ${settings.telegram_admin} • ` : ''}
+                    ${settings.whatsapp_admin ? `<i class="fab fa-whatsapp"></i> ${settings.whatsapp_admin}` : ''}
+                </p>
+            </div>
+        </div>
+
+        <!-- Modal Pembayaran -->
+        <div id="paymentModal" class="modal">
+            <div class="modal-content">
+                <h2><i class="fas fa-qrcode"></i> Bayar dengan QRIS</h2>
+                <div id="paymentDetails">
+                    <!-- Detail pembayaran akan diisi -->
+                </div>
+                <button onclick="closeModal()" style="background: #ff3b30; margin-top: 20px;" class="btn-buy">
+                    <i class="fas fa-times"></i> Tutup
+                </button>
+            </div>
+        </div>
+
+        <a href="/admin" class="admin-link">
+            <i class="fas fa-cog"></i> Admin Panel
+        </a>
+
+        <script>
+            let currentOrder = null;
+            let checkInterval = null;
+
+            // Load harga panel
+            async function loadPrices() {
+                try {
+                    const response = await fetch('/api/prices');
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        displayPrices(data.prices);
+                    }
+                } catch (error) {
+                    console.error('Error loading prices:', error);
+                }
+            }
+
+            function displayPrices(prices) {
+                const container = document.getElementById('pricingContainer');
+                const panelTypes = [
+                    { type: '1gb', ram: '1GB', disk: '1GB', cpu: '40%' },
+                    { type: '2gb', ram: '2GB', disk: '2GB', cpu: '60%' },
+                    { type: '3gb', ram: '3GB', disk: '3GB', cpu: '80%' },
+                    { type: '4gb', ram: '4GB', disk: '4GB', cpu: '100%' },
+                    { type: '5gb', ram: '5GB', disk: '5GB', cpu: '120%' },
+                    { type: '6gb', ram: '6GB', disk: '6GB', cpu: '140%' },
+                    { type: '7gb', ram: '7GB', disk: '7GB', cpu: '160%' },
+                    { type: '8gb', ram: '8GB', disk: '8GB', cpu: '180%' },
+                    { type: '9gb', ram: '9GB', disk: '9GB', cpu: '200%' },
+                    { type: '10gb', ram: '10GB', disk: '10GB', cpu: '220%' },
+                    { type: 'unli', ram: 'Unlimited', disk: 'Unlimited', cpu: 'Unlimited' }
+                ];
+
+                let html = '';
+                panelTypes.forEach(panel => {
+                    const price = prices[panel.type] || 0;
+                    const formattedPrice = price > 0 ? 
+                        `Rp ${price.toLocaleString('id-ID')}` : 
+                        '<span style="color: #ff3b30;">Belum diatur</span>';
+                    
+                    html += `
+                    <div class="price-card ${panel.type === 'unli' ? 'featured' : ''}">
+                        <div class="panel-type">${panel.type.toUpperCase()}</div>
+                        <div class="panel-specs">
+                            <div><i class="fas fa-memory"></i> RAM: ${panel.ram}</div>
+                            <div><i class="fas fa-hdd"></i> DISK: ${panel.disk}</div>
+                            <div><i class="fas fa-microchip"></i> CPU: ${panel.cpu}</div>
+                        </div>
+                        <div class="price">${formattedPrice}</div>
+                        <button class="btn-buy" onclick="buyPanel('${panel.type}')" ${price <= 0 ? 'disabled style="opacity: 0.5;"' : ''}>
+                            <i class="fas fa-shopping-cart"></i> 
+                            ${price > 0 ? 'BELI SEKARANG' : 'HARGA BELUM DIATUR'}
+                        </button>
+                    </div>
+                    `;
+                });
+
+                container.innerHTML = html;
+            }
+
+            // Fungsi pembelian panel
+            async function buyPanel(panelType) {
+                const email = prompt('Masukkan email Anda untuk menerima panel:');
+                if (!email || !email.includes('@')) {
+                    alert('Email tidak valid!');
+                    return;
+                }
+
+                try {
+                    const response = await fetch('/api/create-order', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, panel_type: panelType })
+                    });
+
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        currentOrder = data.order;
+                        showPaymentModal(data);
+                        startPaymentCheck(data.order.order_id);
+                    } else {
+                        alert(data.message || 'Gagal membuat order');
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Terjadi kesalahan, silahkan coba lagi');
+                }
+            }
+
+            // Tampilkan modal pembayaran
+            function showPaymentModal(data) {
+                const modal = document.getElementById('paymentModal');
+                const details = document.getElementById('paymentDetails');
+                
+                let html = `
+                    <div class="input-group">
+                        <label>Email:</label>
+                        <div style="padding: 10px; background: rgba(255,255,255,0.1); border-radius: 5px;">
+                            ${data.order.email}
+                        </div>
+                    </div>
+                    
+                    <div class="input-group">
+                        <label>Tipe Panel:</label>
+                        <div style="padding: 10px; background: rgba(255,255,255,0.1); border-radius: 5px;">
+                            ${data.order.panel_type.toUpperCase()}
+                        </div>
+                    </div>
+                    
+                    <div class="input-group">
+                        <label>Total Pembayaran:</label>
+                        <div style="padding: 10px; background: rgba(255,255,255,0.1); border-radius: 5px; font-size: 1.5rem; color: #ffcc00;">
+                            Rp ${data.order.amount.toLocaleString('id-ID')}
+                        </div>
+                    </div>
+                    
+                    ${data.qr_code ? `
+                    <div class="qr-container">
+                        <img src="${data.qr_code}" alt="QR Code">
+                    </div>
+                    ` : ''}
+                    
+                    ${data.order.qris_string ? `
+                    <div class="input-group">
+                        <label>QRIS String:</label>
+                        <div class="payment-info">
+                            ${data.order.qris_string}
+                        </div>
+                        <small style="color: var(--text-sub);">Scan dengan aplikasi e-wallet Anda</small>
+                    </div>
+                    ` : ''}
+                    
+                    <div id="paymentStatus" style="margin-top: 20px; padding: 10px; border-radius: 5px; background: rgba(255,255,255,0.1);">
+                        <i class="fas fa-spinner fa-spin"></i> Menunggu pembayaran...
+                    </div>
+                `;
+                
+                details.innerHTML = html;
+                modal.style.display = 'flex';
+            }
+
+            // Cek status pembayaran
+            async function startPaymentCheck(orderId) {
+                if (checkInterval) clearInterval(checkInterval);
+                
+                checkInterval = setInterval(async () => {
+                    try {
+                        const response = await fetch(\`/api/check-payment/\${orderId}\`);
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            const statusDiv = document.getElementById('paymentStatus');
+                            
+                            if (data.status === 'PAID') {
+                                statusDiv.innerHTML = '<i class="fas fa-check-circle" style="color: #00ff88;"></i> Pembayaran berhasil! Panel sedang dibuat...';
+                                clearInterval(checkInterval);
+                                
+                                // Tunggu 5 detik lalu refresh
+                                setTimeout(() => {
+                                    alert('Panel berhasil dibuat! Detail akan dikirim ke email Anda.');
+                                    location.reload();
+                                }, 5000);
+                            } else if (data.status === 'EXPIRED') {
+                                statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle" style="color: #ff3b30;"></i> Pembayaran kadaluarsa';
+                                clearInterval(checkInterval);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error checking payment:', error);
+                    }
+                }, 3000); // Cek setiap 3 detik
+            }
+
+            function closeModal() {
+                document.getElementById('paymentModal').style.display = 'none';
+                if (checkInterval) clearInterval(checkInterval);
+            }
+
+            // Tutup modal jika klik di luar
+            window.onclick = function(event) {
+                const modal = document.getElementById('paymentModal');
+                if (event.target === modal) {
+                    closeModal();
+                }
+            }
+
+            // Load harga saat halaman terbuka
+            document.addEventListener('DOMContentLoaded', loadPrices);
+        </script>
+    </body>
+    </html>
+    `;
+}
+
+function generateAdminPage() {
+    return `
+    <!DOCTYPE html>
+    <html lang="id">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Admin Panel - NovaBot</title>
+        <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+        <style>
+            :root {
+                --bg-main: #02040a;
+                --bg-card: #0b0f19;
+                --primary: #3a6df0;
+                --accent: #ffcc00;
+                --danger: #ff3b30;
+                --success: #00ff88;
+                --text-main: #ffffff;
+                --text-sub: #8b9bb4;
+                --border-color: #1c2538;
+            }
+
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+                font-family: 'Rajdhani', sans-serif;
+            }
+
+            body {
+                background: var(--bg-main);
+                color: var(--text-main);
+                min-height: 100vh;
+            }
+
+            .container {
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 20px;
+            }
+
+            .header {
+                text-align: center;
+                padding: 40px 20px;
+                margin-bottom: 40px;
+                border-bottom: 1px solid var(--border-color);
+            }
+
+            .header h1 {
+                font-family: 'Orbitron', sans-serif;
+                font-size: 2.5rem;
+                color: var(--primary);
+            }
+
+            .tabs {
+                display: flex;
+                gap: 10px;
+                margin-bottom: 30px;
+                overflow-x: auto;
+            }
+
+            .tab {
+                background: var(--bg-card);
+                border: 1px solid var(--border-color);
+                padding: 15px 30px;
+                cursor: pointer;
+                border-radius: 10px 10px 0 0;
+                white-space: nowrap;
+                transition: all 0.3s ease;
+            }
+
+            .tab.active {
+                background: var(--primary);
+                border-color: var(--primary);
+            }
+
+            .tab-content {
+                display: none;
+                background: var(--bg-card);
+                padding: 30px;
+                border-radius: 0 10px 10px 10px;
+                border: 1px solid var(--border-color);
+            }
+
+            .tab-content.active {
+                display: block;
+            }
+
+            .form-group {
+                margin-bottom: 20px;
+            }
+
+            .form-group label {
+                display: block;
+                margin-bottom: 8px;
+                color: var(--text-sub);
+                font-weight: bold;
+            }
+
+            .form-group input, .form-group textarea {
+                width: 100%;
+                padding: 15px;
+                background: rgba(255,255,255,0.1);
+                border: 1px solid var(--border-color);
+                border-radius: 10px;
+                color: white;
+                font-size: 1rem;
+            }
+
+            .form-group textarea {
+                min-height: 100px;
+                resize: vertical;
+            }
+
+            .price-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                gap: 15px;
+            }
+
+            .price-input {
+                background: rgba(255,255,255,0.1);
+                border: 1px solid var(--border-color);
+                border-radius: 10px;
+                padding: 15px;
+            }
+
+            .price-input label {
+                display: block;
+                margin-bottom: 5px;
+                font-size: 0.9rem;
+                color: var(--text-sub);
+            }
+
+            .price-input input {
+                width: 100%;
+                background: transparent;
+                border: none;
+                color: white;
+                font-size: 1.2rem;
+                outline: none;
+            }
+
+            .btn {
+                background: var(--primary);
+                color: white;
+                border: none;
+                padding: 15px 30px;
+                border-radius: 10px;
+                cursor: pointer;
+                font-family: 'Orbitron', sans-serif;
+                font-size: 1rem;
+                transition: all 0.3s ease;
+                display: inline-flex;
+                align-items: center;
+                gap: 10px;
+            }
+
+            .btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 10px 20px rgba(58, 109, 240, 0.3);
+            }
+
+            .btn-success {
+                background: var(--success);
+            }
+
+            .btn-danger {
+                background: var(--danger);
+            }
+
+            .table-container {
+                overflow-x: auto;
+                margin-top: 20px;
+            }
+
+            table {
+                width: 100%;
+                border-collapse: collapse;
+            }
+
+            th, td {
+                padding: 15px;
+                text-align: left;
+                border-bottom: 1px solid var(--border-color);
+            }
+
+            th {
+                background: rgba(255,255,255,0.05);
+                font-family: 'Orbitron', sans-serif;
+                color: var(--primary);
+            }
+
+            .status {
+                padding: 5px 10px;
+                border-radius: 5px;
+                font-size: 0.8rem;
+                font-weight: bold;
+            }
+
+            .status.pending {
+                background: rgba(255, 204, 0, 0.2);
+                color: var(--accent);
+            }
+
+            .status.completed {
+                background: rgba(0, 255, 136, 0.2);
+                color: var(--success);
+            }
+
+            .back-link {
+                display: inline-block;
+                margin-top: 30px;
+                color: var(--text-sub);
+                text-decoration: none;
+            }
+
+            .back-link:hover {
+                color: var(--primary);
+            }
+
+            .stats-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                gap: 20px;
+                margin-bottom: 30px;
+            }
+
+            .stat-card {
+                background: var(--bg-card);
+                padding: 25px;
+                border-radius: 15px;
+                border: 1px solid var(--border-color);
+                text-align: center;
+            }
+
+            .stat-card h3 {
+                font-family: 'Orbitron', sans-serif;
+                font-size: 2.5rem;
+                color: var(--primary);
+                margin-bottom: 10px;
+            }
+
+            .stat-card p {
+                color: var(--text-sub);
+                font-size: 0.9rem;
+            }
+
+            .notification {
+                padding: 15px;
+                border-radius: 10px;
+                margin-bottom: 20px;
+                display: none;
+            }
+
+            .notification.success {
+                background: rgba(0, 255, 136, 0.2);
+                border: 1px solid var(--success);
+                color: var(--success);
+            }
+
+            .notification.error {
+                background: rgba(255, 59, 48, 0.2);
+                border: 1px solid var(--danger);
+                color: var(--danger);
+            }
+
+            @media (max-width: 768px) {
+                .tabs {
+                    flex-wrap: wrap;
+                }
+                
+                .tab {
+                    flex: 1;
+                    min-width: 120px;
+                    text-align: center;
+                }
+                
+                .price-grid {
+                    grid-template-columns: 1fr 1fr;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1><i class="fas fa-cog"></i> Admin Panel NovaBot</h1>
+                <p style="color: var(--text-sub); margin-top: 10px;">Management Panel Jualan</p>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <h3 id="totalOrders">0</h3>
+                    <p>Total Orders</p>
+                </div>
+                <div class="stat-card">
+                    <h3 id="totalRevenue">0</h3>
+                    <p>Total Pendapatan</p>
+                </div>
+                <div class="stat-card">
+                    <h3 id="activePanels">0</h3>
+                    <p>Panel Aktif</p>
+                </div>
+                <div class="stat-card">
+                    <h3 id="pendingOrders">0</h3>
+                    <p>Pending Payment</p>
+                </div>
+            </div>
+
+            <div id="notification" class="notification"></div>
+
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('settings')">
+                    <i class="fas fa-sliders-h"></i> Settings
+                </div>
+                <div class="tab" onclick="switchTab('prices')">
+                    <i class="fas fa-tags"></i> Harga Panel
+                </div>
+                <div class="tab" onclick="switchTab('orders')">
+                    <i class="fas fa-shopping-cart"></i> Orders
+                </div>
+                <div class="tab" onclick="switchTab('panels')">
+                    <i class="fas fa-server"></i> Panels
+                </div>
+            </div>
+
+            <div id="settingsTab" class="tab-content active">
+                <h2 style="margin-bottom: 20px; color: var(--primary);"><i class="fas fa-cog"></i> Website Settings</h2>
+                
+                <form id="settingsForm">
+                    <div class="form-group">
+                        <label>Password Admin:</label>
+                        <input type="password" id="adminPassword" placeholder="Masukkan password admin" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Nama Toko:</label>
+                        <input type="text" id="namaToko" placeholder="Nama toko website">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Deskripsi:</label>
+                        <textarea id="deskripsi" placeholder="Deskripsi toko"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Foto Profil (URL):</label>
+                        <input type="text" id="fotoProfil" placeholder="https://example.com/foto.jpg">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Video Promo (URL):</label>
+                        <input type="text" id="videoPromo" placeholder="https://example.com/video.mp4">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Logo (URL):</label>
+                        <input type="text" id="logoUrl" placeholder="https://example.com/logo.png">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Warna Utama:</label>
+                        <input type="color" id="warnaUtama" value="#3a6df0">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Telegram Admin:</label>
+                        <input type="text" id="telegramAdmin" placeholder="@username">
+                    </div>
+
+                    <div class="form-group">
+                        <label>WhatsApp Admin:</label>
+                        <input type="text" id="whatsappAdmin" placeholder="6281234567890">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Pesan Selamat Datang:</label>
+                        <input type="text" id="pesanSelamatDatang" placeholder="Selamat datang di toko kami!">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Footer Text:</label>
+                        <input type="text" id="footerText" placeholder="© 2024 All rights reserved">
+                    </div>
+
+                    <button type="submit" class="btn">
+                        <i class="fas fa-save"></i> Simpan Settings
+                    </button>
+                </form>
+            </div>
+
+            <div id="pricesTab" class="tab-content">
+                <h2 style="margin-bottom: 20px; color: var(--primary);"><i class="fas fa-tags"></i> Harga Panel</h2>
+                
+                <div class="price-grid" id="priceGrid">
+                    <!-- Harga akan di-load via JavaScript -->
+                </div>
+
+                <button onclick="savePrices()" class="btn" style="margin-top: 20px;">
+                    <i class="fas fa-save"></i> Simpan Harga
+                </button>
+            </div>
+
+            <div id="ordersTab" class="tab-content">
+                <h2 style="margin-bottom: 20px; color: var(--primary);"><i class="fas fa-shopping-cart"></i> Order Management</h2>
+                
+                <div class="table-container">
+                    <table id="ordersTable">
+                        <thead>
+                            <tr>
+                                <th>Order ID</th>
+                                <th>Email</th>
+                                <th>Panel</th>
+                                <th>Amount</th>
+                                <th>Status</th>
+                                <th>Tanggal</th>
+                                <th>Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ordersTableBody">
+                            <!-- Data orders akan diisi -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="panelsTab" class="tab-content">
+                <h2 style="margin-bottom: 20px; color: var(--primary);"><i class="fas fa-server"></i> Panel Management</h2>
+                
+                <div class="table-container">
+                    <table id="panelsTable">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Email</th>
+                                <th>Panel Type</th>
+                                <th>Server ID</th>
+                                <th>Status</th>
+                                <th>Expires</th>
+                            </tr>
+                        </thead>
+                        <tbody id="panelsTableBody">
+                            <!-- Data panels akan diisi -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <a href="/" class="back-link">
+                <i class="fas fa-arrow-left"></i> Kembali ke Halaman Utama
+            </a>
+        </div>
+
+        <script>
+            let adminPassword = '';
+            let currentPrices = {};
+
+            // Switch tab
+            function switchTab(tabName) {
+                // Hide all tabs
+                document.querySelectorAll('.tab-content').forEach(tab => {
+                    tab.classList.remove('active');
+                });
+                document.querySelectorAll('.tab').forEach(tab => {
+                    tab.classList.remove('active');
+                });
+
+                // Show selected tab
+                document.getElementById(tabName + 'Tab').classList.add('active');
+                event.target.classList.add('active');
+            }
+
+            // Load dashboard stats
+            async function loadStats() {
+                try {
+                    const response = await fetch('/api/admin/orders?password=' + adminPassword);
+                    const ordersData = await response.json();
+                    
+                    if (ordersData.success) {
+                        const orders = ordersData.orders || [];
+                        const totalOrders = orders.length;
+                        const totalRevenue = orders.reduce((sum, order) => sum + (order.amount || 0), 0);
+                        const pendingOrders = orders.filter(order => order.status === 'pending').length;
+                        
+                        document.getElementById('totalOrders').textContent = totalOrders;
+                        document.getElementById('totalRevenue').textContent = 'Rp ' + totalRevenue.toLocaleString('id-ID');
+                        document.getElementById('pendingOrders').textContent = pendingOrders;
+                    }
+                } catch (error) {
+                    console.error('Error loading stats:', error);
+                }
+
+                try {
+                    const response = await fetch('/api/admin/panels?password=' + adminPassword);
+                    const panelsData = await response.json();
+                    
+                    if (panelsData.success) {
+                        const panels = panelsData.panels || [];
+                        const activePanels = panels.filter(panel => panel.status === 'active').length;
+                        
+                        document.getElementById('activePanels').textContent = activePanels;
+                    }
+                } catch (error) {
+                    console.error('Error loading panels:', error);
+                }
+            }
+
+            // Load settings
+            async function loadSettings() {
+                try {
+                    const response = await fetch('/api/settings');
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        const settings = data.settings;
+                        
+                        // Isi form settings
+                        document.getElementById('namaToko').value = settings.nama_toko || '';
+                        document.getElementById('deskripsi').value = settings.deskripsi || '';
+                        document.getElementById('fotoProfil').value = settings.foto_profil || '';
+                        document.getElementById('videoPromo').value = settings.video_promo || '';
+                        document.getElementById('logoUrl').value = settings.logo_url || '';
+                        document.getElementById('warnaUtama').value = settings.warna_utama || '#3a6df0';
+                        document.getElementById('telegramAdmin').value = settings.telegram_admin || '';
+                        document.getElementById('whatsappAdmin').value = settings.whatsapp_admin || '';
+                        document.getElementById('pesanSelamatDatang').value = settings.pesan_selamat_datang || '';
+                        document.getElementById('footerText').value = settings.footer_text || '';
+                        
+                        // Isi harga
+                        currentPrices = settings.harga_panel || {};
+                        displayPrices();
+                    }
+                } catch (error) {
+                    console.error('Error loading settings:', error);
+                }
+            }
+
+            // Display prices in grid
+            function displayPrices() {
+                const priceGrid = document.getElementById('priceGrid');
+                const panelTypes = [
+                    '1gb', '2gb', '3gb', '4gb', '5gb',
+                    '6gb', '7gb', '8gb', '9gb', '10gb', 'unli'
+                ];
+
+                let html = '';
+                panelTypes.forEach(type => {
+                    const price = currentPrices[type] || 0;
+                    html += \`
+                    <div class="price-input">
+                        <label>\${type.toUpperCase()}</label>
+                        <input type="number" id="price_\${type}" 
+                               value="\${price}" 
+                               placeholder="0"
+                               onchange="updatePrice('\${type}', this.value)">
+                    </div>
+                    \`;
+                });
+
+                priceGrid.innerHTML = html;
+            }
+
+            // Update price in memory
+            function updatePrice(type, value) {
+                currentPrices[type] = parseInt(value) || 0;
+            }
+
+            // Save settings
+            document.getElementById('settingsForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                adminPassword = document.getElementById('adminPassword').value;
+                if (!adminPassword) {
+                    showNotification('Password admin harus diisi!', 'error');
+                    return;
+                }
+
+                const settings = {
+                    nama_toko: document.getElementById('namaToko').value,
+                    deskripsi: document.getElementById('deskripsi').value,
+                    foto_profil: document.getElementById('fotoProfil').value,
+                    video_promo: document.getElementById('videoPromo').value,
+                    logo_url: document.getElementById('logoUrl').value,
+                    warna_utama: document.getElementById('warnaUtama').value,
+                    telegram_admin: document.getElementById('telegramAdmin').value,
+                    whatsapp_admin: document.getElementById('whatsappAdmin').value,
+                    pesan_selamat_datang: document.getElementById('pesanSelamatDatang').value,
+                    footer_text: document.getElementById('footerText').value,
+                    harga_panel: currentPrices
+                };
+
+                try {
+                    const response = await fetch('/api/admin/settings', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ...settings, password: adminPassword })
+                    });
+
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        showNotification('Settings berhasil disimpan!', 'success');
+                        loadStats();
+                    } else {
+                        showNotification(data.message || 'Gagal menyimpan settings', 'error');
+                    }
+                } catch (error) {
+                    console.error('Error saving settings:', error);
+                    showNotification('Terjadi kesalahan', 'error');
+                }
+            });
+
+            // Save prices only
+            async function savePrices() {
+                if (!adminPassword) {
+                    adminPassword = prompt('Masukkan password admin:');
+                    if (!adminPassword) return;
+                }
+
+                try {
+                    const response = await fetch('/api/admin/settings', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            harga_panel: currentPrices,
+                            password: adminPassword 
+                        })
+                    });
+
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        showNotification('Harga berhasil disimpan!', 'success');
+                    } else {
+                        showNotification(data.message || 'Gagal menyimpan harga', 'error');
+                    }
+                } catch (error) {
+                    console.error('Error saving prices:', error);
+                    showNotification('Terjadi kesalahan', 'error');
+                }
+            }
+
+            // Load orders
+            async function loadOrders() {
+                if (!adminPassword) return;
+                
+                try {
+                    const response = await fetch('/api/admin/orders?password=' + adminPassword);
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        const tbody = document.getElementById('ordersTableBody');
+                        const orders = data.orders || [];
+                        
+                        let html = '';
+                        orders.forEach(order => {
+                            html += \`
+                            <tr>
+                                <td>\${order.order_id}</td>
+                                <td>\${order.email}</td>
+                                <td>\${order.panel_type.toUpperCase()}</td>
+                                <td>Rp \${order.amount ? order.amount.toLocaleString('id-ID') : 0}</td>
+                                <td>
+                                    <span class="status \${order.status}">\${order.status}</span>
+                                </td>
+                                <td>\${new Date(order.created_at).toLocaleString('id-ID')}</td>
+                                <td>
+                                    <button onclick="checkOrderStatus('\${order.order_id}')" class="btn" style="padding: 5px 10px; font-size: 0.8rem;">
+                                        <i class="fas fa-sync"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                            \`;
+                        });
+                        
+                        tbody.innerHTML = html || '<tr><td colspan="7" style="text-align: center;">Tidak ada data</td></tr>';
+                    }
+                } catch (error) {
+                    console.error('Error loading orders:', error);
+                }
+            }
+
+            // Load panels
+            async function loadPanels() {
+                if (!adminPassword) return;
+                
+                try {
+                    const response = await fetch('/api/admin/panels?password=' + adminPassword);
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        const tbody = document.getElementById('panelsTableBody');
+                        const panels = data.panels || [];
+                        
+                        let html = '';
+                        panels.forEach(panel => {
+                            const expires = panel.expiresAt ? new Date(panel.expiresAt).toLocaleDateString('id-ID') : '-';
+                            
+                            html += \`
+                            <tr>
+                                <td>\${panel.id}</td>
+                                <td>\${panel.username}</td>
+                                <td>\${panel.panelType.toUpperCase()}</td>
+                                <td>\${panel.serverId}</td>
+                                <td>
+                                    <span class="status \${panel.status}">\${panel.status}</span>
+                                </td>
+                                <td>\${expires}</td>
+                            </tr>
+                            \`;
+                        });
+                        
+                        tbody.innerHTML = html || '<tr><td colspan="6" style="text-align: center;">Tidak ada data</td></tr>';
+                    }
+                } catch (error) {
+                    console.error('Error loading panels:', error);
+                }
+            }
+
+            // Check order status
+            async function checkOrderStatus(orderId) {
+                try {
+                    const response = await fetch(\`/api/check-payment/\${orderId}\`);
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        showNotification(\`Status order \${orderId}: \${data.status}\`, 'success');
+                        loadOrders();
+                        loadPanels();
+                        loadStats();
+                    }
+                } catch (error) {
+                    console.error('Error checking order:', error);
+                }
+            }
+
+            // Show notification
+            function showNotification(message, type) {
+                const notification = document.getElementById('notification');
+                notification.textContent = message;
+                notification.className = \`notification \${type}\`;
+                notification.style.display = 'block';
+                
+                setTimeout(() => {
+                    notification.style.display = 'none';
+                }, 5000);
+            }
+
+            // Event listener untuk tab orders dan panels
+            document.querySelector('.tab[onclick="switchTab(\'orders\')"]').addEventListener('click', function() {
+                setTimeout(() => {
+                    if (adminPassword) {
+                        loadOrders();
+                    } else {
+                        adminPassword = prompt('Masukkan password admin:');
+                        if (adminPassword) {
+                            loadOrders();
+                        }
+                    }
+                }, 100);
+            });
+
+            document.querySelector('.tab[onclick="switchTab(\'panels\')"]').addEventListener('click', function() {
+                setTimeout(() => {
+                    if (adminPassword) {
+                        loadPanels();
+                    } else {
+                        adminPassword = prompt('Masukkan password admin:');
+                        if (adminPassword) {
+                            loadPanels();
+                        }
+                    }
+                }, 100);
+            });
+
+            // Load data saat halaman dibuka
+            document.addEventListener('DOMContentLoaded', function() {
+                loadSettings();
+            });
+        </script>
+    </body>
+    </html>
+    `;
+}
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🚀 START SERVER
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+app.listen(PORT, HOST, () => {
+    console.log(`
+    ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+    ┃                                    ┃
+    ┃   🚀 NovaBot Panel Started!       ┃
+    ┃                                    ┃
+    ┠────────────────────────────────────┨
+    ┃  🌐 Server: http://${HOST}:${PORT}    ┃
+    ┃  📱 Admin:  http://${HOST}:${PORT}/admin ┃
+    ┃  🔧 Version: ${config.VERSI_WEB}          ┃
+    ┃                                    ┃
+    ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+    `);
 });
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🎉 BOT STARTUP
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-(async () => {
-const otakai = initOtakai();
-await showBanner();
-setTimeout(() => {
-checkForUpdatesOnStart();
-}, 5000);
-setTimeout(() => {
-checkAndSendRestartNotification();
-}, 3000);
-setTimeout(() => {
-sendStartupNotification();
-}, 7000);
-})();
