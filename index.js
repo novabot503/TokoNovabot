@@ -240,8 +240,7 @@ app.post('/api/create-order', async (req, res) => {
             '8gb': config.PRICE_8GB || 500,
             '9gb': config.PRICE_9GB || 500,
             '10gb': config.PRICE_10GB || 500,
-            'unli': config.PRICE_UNLI || 500,
-            'unlimited': config.PRICE_UNLI || 500
+            'unli': config.PRICE_UNLI || 500
         };
         
         const amount = priceMap[panel_type] || 500;
@@ -456,8 +455,27 @@ app.get('/', (req, res) => {
 <html lang="id">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=0.65, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=0.50, user-scalable=no" />
     <title>Novabot Panel Store</title>
+
+    <!-- Favicon -->
+    <link rel="icon" href="https://files.catbox.moe/92681q.jpg" type="image/jpeg">
+    <link rel="apple-touch-icon" href="https://files.catbox.moe/92681q.jpg">
+
+    <!-- Open Graph / Facebook / WhatsApp -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://toko-novabot.vercel.app">
+    <meta property="og:title" content="Novabot Panel Store">
+    <meta property="og:description" content="Jual panel Pterodactyl terbaik dengan harga terjangkau. Pembayaran via QRIS.">
+    <meta property="og:image" content="https://files.catbox.moe/92681q.jpg">
+
+    <!-- Twitter Card (juga dipakai Telegram) -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://toko-novabot.vercel.app">
+    <meta property="twitter:title" content="Novabot Panel Store">
+    <meta property="twitter:description" content="Jual panel Pterodactyl terbaik dengan harga terjangkau. Pembayaran via QRIS.">
+    <meta property="twitter:image" content="https://files.catbox.moe/92681q.jpg">
+
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Orbitron:wght@500;700;900&family=VT323&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
     <style>
@@ -1009,7 +1027,7 @@ app.get('/', (req, res) => {
         <!-- Input email tanpa ikon (tombol bulat dihapus) -->
         <div class="email-input-group" style="margin: 30px 0;">
             <input type="email" id="userEmail" class="email-input" 
-                   placeholder="contoh: nama@email.com" 
+                   placeholder="contoh: novabot@email.com" 
                    style="padding: 20px; text-align: center;" 
                    required>
         </div>
