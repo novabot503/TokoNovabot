@@ -2,12 +2,11 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Novabot Panel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=0.65, user-scalable=no" />
+    <title>Novabot Panel Store</title>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Orbitron:wght@500;700;900&family=VT323&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/style.css">
-    <!-- Konfigurasi dari backend -->
     <script>
         window.CONFIG = {{CONFIG_SCRIPT}};
     </script>
@@ -39,24 +38,32 @@
             </div>
         </div>
 
-        <!-- NEWS SLIDER -->
+        <!-- SLIDER DENGAN 2 VIDEO (seperti contoh login) -->
         <div class="lux-section-title">Latest News</div>
-        <div class="slider-container">
-            <div class="slide">
-                <video src="https://files.catbox.moe/7iyjd5.mp4" autoplay muted loop playsinline></video>
-                <div class="lux-news-content">
-                    <h3>NovaBot Panel v<span id="versiWeb"></span></h3>
-                    <p>Panel Pterodactyl siap pakai dengan sistem pembayaran otomatis</p>
+        <div class="slider-container" id="newsSlider">
+            <div class="slider-track">
+                <!-- Video 1 -->
+                <div class="slide">
+                    <video src="https://files.catbox.moe/7iyjd5.mp4" autoplay muted loop playsinline></video>
+                    <div class="lux-news-content">
+                        <h3>NovaBot Panel v{{VERSI_WEB}}</h3>
+                        <p>Panel Pterodactyl siap pakai dengan sistem pembayaran otomatis</p>
+                    </div>
+                </div>
+                <!-- Video 2 -->
+                <div class="slide">
+                    <video src="https://files.catbox.moe/sbwa8f.mp4" autoplay muted loop playsinline></video>
+                    <div class="lux-news-content">
+                        <h3>Promo Spesial!</h3>
+                        <p>Dapatkan diskon 10% untuk pembelian panel pertama</p>
+                    </div>
                 </div>
             </div>
         </div>
 
         <!-- PRICING SECTION -->
         <div class="lux-section-title">Pilih Panel Anda</div>
-        
-        <div class="pricing-grid" id="pricingGrid">
-            <!-- Price cards akan di-generate oleh JavaScript -->
-        </div>
+        <div class="pricing-grid" id="pricingGrid"></div>
 
         <!-- FOOTER -->
         <div class="footer">
@@ -68,7 +75,7 @@
         </div>
     </div>
 
-    <!-- EMAIL MODAL dengan VIDEO BACKGROUND -->
+    <!-- EMAIL MODAL (untuk input email sebelum bayar) -->
     <div id="emailModal" class="email-modal">
         <div class="email-modal-content">
             <div class="email-modal-bg">
@@ -100,11 +107,7 @@
     <div id="paymentModal" class="modal">
         <div class="modal-content">
             <h2><i class="fas fa-qrcode"></i> Bayar dengan QRIS</h2>
-            
-            <div id="paymentDetails">
-                <!-- Payment details akan diisi oleh JavaScript -->
-            </div>
-            
+            <div id="paymentDetails"></div>
             <div class="button-group">
                 <button class="close-btn" onclick="closeModal()">
                     <i class="fas fa-times"></i> Tutup

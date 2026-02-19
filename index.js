@@ -2,33 +2,29 @@ const express = require('express');
 const fetch = require('node-fetch');
 const bodyParser = require('body-parser');
 const cors = require('cors');
-const path = require("path");
+const path = require('path');
 const config = require('./setting.js');
 const fs = require('fs').promises;
 
 const app = express();
-const PORT = config.PORT || 8080;
-const HOST = config.HOST || 'localhost';
+const PORT = config.PORT || 3000;
 
-// In-memory storage untuk order
+// In-memory storage untuk order (akan hilang di Vercel, gunakan database untuk production)
 const orders = new Map();
 
 app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname))); // biar bisa akses file statis di root
+app.use(express.static(__dirname)); // sajikan file statis dari root
 
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📦 PAKASIR PAYMENT FUNCTIONS
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 📦 FUNGSI PEMBAYARAN PAKASIR (sama seperti sebelumnya)
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 async function createQRISPayment(orderId, amount) {
     try {
         const response = await fetch('https://app.pakasir.com/api/transactioncreate/qris', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify({
                 project: config.PAKASIR_PROJECT,
                 api_key: config.PAKASIR_API_KEY,
@@ -36,13 +32,8 @@ async function createQRISPayment(orderId, amount) {
                 amount: amount
             })
         });
-
         const data = await response.json();
-
-        if (!data.success && !data.payment) {
-            return null;
-        }
-
+        if (!data.success && !data.payment) return null;
         const payment = data.payment || data;
         return {
             success: true,
@@ -60,72 +51,47 @@ async function checkPaymentStatus(orderId) {
         const detailUrl = `https://app.pakasir.com/api/transactiondetail?project=${encodeURIComponent(config.PAKASIR_PROJECT)}&amount=0&order_id=${encodeURIComponent(orderId)}&api_key=${encodeURIComponent(config.PAKASIR_API_KEY)}`;
         const response = await fetch(detailUrl);
         const data = await response.json();
-
         const transaction = data.transaction || data || {};
-
-        // Normalize status
         let status = transaction.status || '';
         if (typeof status === 'string') {
             status = status.toLowerCase();
             if (status === 'success') status = 'paid';
             if (status === 'settled') status = 'paid';
         }
-
-        return {
-            success: true,
-            status: status,
-            transaction: transaction,
-            raw: data
-        };
+        return { success: true, status, transaction, raw: data };
     } catch (error) {
         return null;
     }
 }
 
 async function processPayment(orderId, amount) {
-    try {
-        const qrData = await createQRISPayment(orderId, amount);
-        if (!qrData) {
-            throw new Error('Gagal membuat pembayaran QRIS');
-        }
-        return qrData;
-    } catch (error) {
-        throw error;
-    }
+    const qrData = await createQRISPayment(orderId, amount);
+    if (!qrData) throw new Error('Gagal membuat pembayaran QRIS');
+    return qrData;
 }
 
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🖥️ CREATE PTERODACTYL SERVER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🖥️ FUNGSI CREATE PTERODACTYL SERVER (sama seperti sebelumnya)
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 async function createPterodactylServer(userId, panelType, username, serverName = null) {
     try {
         let ram, disk, cpu;
-
         if (panelType === 'unli' || panelType === 'unlimited') {
-            ram = 0;
-            disk = 0;
-            cpu = 0;
+            ram = disk = cpu = 0;
         } else {
-            switch (panelType) {
-                case '1gb': ram = 1024; disk = 1024; cpu = 40; break;
-                case '2gb': ram = 2048; disk = 2048; cpu = 60; break;
-                case '3gb': ram = 3072; disk = 3072; cpu = 80; break;
-                case '4gb': ram = 4096; disk = 4096; cpu = 100; break;
-                case '5gb': ram = 5120; disk = 5120; cpu = 120; break;
-                case '6gb': ram = 6144; disk = 6144; cpu = 140; break;
-                case '7gb': ram = 7168; disk = 7168; cpu = 160; break;
-                case '8gb': ram = 8192; disk = 8192; cpu = 180; break;
-                case '9gb': ram = 9216; disk = 9216; cpu = 200; break;
-                case '10gb': ram = 10240; disk = 10240; cpu = 220; break;
-                default: ram = 1024; disk = 1024; cpu = 40;
-            }
+            const map = {
+                '1gb': [1024, 1024, 40], '2gb': [2048, 2048, 60], '3gb': [3072, 3072, 80],
+                '4gb': [4096, 4096, 100], '5gb': [5120, 5120, 120], '6gb': [6144, 6144, 140],
+                '7gb': [7168, 7168, 160], '8gb': [8192, 8192, 180], '9gb': [9216, 9216, 200],
+                '10gb': [10240, 10240, 220]
+            };
+            [ram, disk, cpu] = map[panelType] || [1024, 1024, 40];
         }
 
         const serverCount = 1;
-        const safeServerName = serverName ||
-            (panelType === 'unli' || panelType === 'unlimited'
-                ? `${capitalize(username)} UNLI Server #${serverCount}`
-                : `${capitalize(username)} ${panelType.toUpperCase()} Server #${serverCount}`);
+        const safeServerName = serverName || (panelType === 'unli' || panelType === 'unlimited'
+            ? `${capitalize(username)} UNLI Server #${serverCount}`
+            : `${capitalize(username)} ${panelType.toUpperCase()} Server #${serverCount}`);
 
         const serverResponse = await fetch(`${config.DOMAIN}/api/application/servers`, {
             method: 'POST',
@@ -141,47 +107,23 @@ async function createPterodactylServer(userId, panelType, username, serverName =
                 egg: parseInt(config.EGG),
                 docker_image: 'ghcr.io/parkervcp/yolks:nodejs_20',
                 startup: 'npm install && npm start',
-                environment: {
-                    INST: 'npm',
-                    USER_UPLOAD: '0',
-                    AUTO_UPDATE: '0',
-                    CMD_RUN: 'npm start'
-                },
-                limits: {
-                    memory: parseInt(ram),
-                    swap: 0,
-                    disk: parseInt(disk),
-                    io: 500,
-                    cpu: parseInt(cpu)
-                },
-                feature_limits: {
-                    databases: 5,
-                    backups: 5,
-                    allocations: 1
-                },
-                deploy: {
-                    locations: [parseInt(config.LOX)],
-                    dedicated_ip: false,
-                    port_range: []
-                }
+                environment: { INST: 'npm', USER_UPLOAD: '0', AUTO_UPDATE: '0', CMD_RUN: 'npm start' },
+                limits: { memory: parseInt(ram), swap: 0, disk: parseInt(disk), io: 500, cpu: parseInt(cpu) },
+                feature_limits: { databases: 5, backups: 5, allocations: 1 },
+                deploy: { locations: [parseInt(config.LOX)], dedicated_ip: false, port_range: [] }
             })
         });
 
         const serverData = await serverResponse.json();
-
-        if (serverData.errors) {
-            throw new Error(serverData.errors[0].detail || 'Gagal membuat server');
-        }
+        if (serverData.errors) throw new Error(serverData.errors[0].detail || 'Gagal membuat server');
 
         return {
             success: true,
             serverId: serverData.attributes.id,
             identifier: serverData.attributes.identifier,
             name: safeServerName,
-            panelType: panelType,
-            ram: ram,
-            disk: disk,
-            cpu: cpu,
+            panelType,
+            ram, disk, cpu,
             createdAt: new Date().toISOString(),
             panelUrl: `${config.URL}/server/${serverData.attributes.identifier}`
         };
@@ -190,15 +132,13 @@ async function createPterodactylServer(userId, panelType, username, serverName =
     }
 }
 
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 🎯 HELPER FUNCTIONS
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function generateRandomPassword(length = 8) {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     let password = '';
-    for (let i = 0; i < length; i++) {
-        password += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
+    for (let i = 0; i < length; i++) password += chars.charAt(Math.floor(Math.random() * chars.length));
     return password;
 }
 
@@ -220,89 +160,76 @@ function escapeHTML(text) {
         .replace(/'/g, '&#039;');
 }
 
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📊 ROUTES API
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 📊 API ROUTES
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// 📌 Endpoint untuk mencatat kunjungan (notifikasi Telegram)
+app.post('/api/visit', async (req, res) => {
+    try {
+        const { referrer, userAgent, screen, language, timezone } = req.body;
+        const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+        const message = `
+🆕 *Ada pengunjung baru di website panel!*
+🌐 IP: ${ip}
+🕐 Waktu: ${new Date().toLocaleString('id-ID')}
+💻 Browser: ${userAgent || 'N/A'}
+📱 Resolusi: ${screen || 'N/A'}
+🗣️ Bahasa: ${language || 'N/A'}
+⏰ Timezone: ${timezone || 'N/A'}
+🔗 Referrer: ${referrer || 'Langsung'}
+        `;
+        const url = `https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/sendMessage`;
+        await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: config.OWNER_ID,
+                text: message,
+                parse_mode: 'Markdown'
+            })
+        });
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 
 // 1. CREATE Order
 app.post('/api/create-order', async (req, res) => {
     try {
         const { email, panel_type } = req.body;
-
         if (!email || !panel_type) {
-            return res.status(400).json({
-                success: false,
-                message: 'Email dan tipe panel harus diisi'
-            });
+            return res.status(400).json({ success: false, message: 'Email dan tipe panel harus diisi' });
         }
-
-        // Get price from config
         const priceMap = {
-            '1gb': config.PRICE_1GB || 500,
-            '2gb': config.PRICE_2GB || 500,
-            '3gb': config.PRICE_3GB || 500,
-            '4gb': config.PRICE_4GB || 500,
-            '5gb': config.PRICE_5GB || 500,
-            '6gb': config.PRICE_6GB || 500,
-            '7gb': config.PRICE_7GB || 500,
-            '8gb': config.PRICE_8GB || 500,
-            '9gb': config.PRICE_9GB || 500,
-            '10gb': config.PRICE_10GB || 500,
-            'unli': config.PRICE_UNLI || 500,
-            'unlimited': config.PRICE_UNLI || 500
+            '1gb': config.PRICE_1GB, '2gb': config.PRICE_2GB, '3gb': config.PRICE_3GB,
+            '4gb': config.PRICE_4GB, '5gb': config.PRICE_5GB, '6gb': config.PRICE_6GB,
+            '7gb': config.PRICE_7GB, '8gb': config.PRICE_8GB, '9gb': config.PRICE_9GB,
+            '10gb': config.PRICE_10GB, 'unli': config.PRICE_UNLI, 'unlimited': config.PRICE_UNLI
         };
-
         const amount = priceMap[panel_type] || 500;
-
-        if (amount <= 0) {
-            return res.status(400).json({
-                success: false,
-                message: 'Harga tidak valid'
-            });
-        }
+        if (amount <= 0) return res.status(400).json({ success: false, message: 'Harga tidak valid' });
 
         const orderId = generateOrderId();
-
-        // Buat pembayaran
         const payment = await processPayment(orderId, amount);
+        if (!payment) return res.status(500).json({ success: false, message: 'Gagal membuat pembayaran' });
 
-        if (!payment) {
-            return res.status(500).json({
-                success: false,
-                message: 'Gagal membuat pembayaran'
-            });
-        }
-
-        // Simpan order
         const order = {
             order_id: orderId,
-            email: email,
-            panel_type: panel_type,
-            amount: amount,
+            email, panel_type, amount,
             payment_number: payment.payment_number,
             qris_string: payment.qris_string,
             status: 'pending',
             created_at: new Date().toISOString(),
             panel_created: false
         };
-
         orders.set(orderId, order);
 
-        // Generate QR Code URL
         const qrUrl = `https://quickchart.io/qr?text=${encodeURIComponent(payment.qris_string)}&size=300&margin=1`;
-
-        res.json({
-            success: true,
-            order: order,
-            qr_url: qrUrl,
-            payment_info: payment
-        });
-
+        res.json({ success: true, order, qr_url: qrUrl, payment_info: payment });
     } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: 'Internal server error'
-        });
+        res.status(500).json({ success: false, message: 'Internal server error' });
     }
 });
 
@@ -311,32 +238,16 @@ app.get('/api/check-payment/:orderId', async (req, res) => {
     try {
         const { orderId } = req.params;
         const paymentStatus = await checkPaymentStatus(orderId);
+        if (!paymentStatus) return res.status(500).json({ success: false, message: 'Gagal memeriksa status' });
 
-        if (!paymentStatus) {
-            return res.status(500).json({
-                success: false,
-                message: 'Gagal memeriksa status pembayaran'
-            });
-        }
-
-        // Update order status
         const order = orders.get(orderId);
         if (order) {
             order.status = paymentStatus.status;
             orders.set(orderId, order);
         }
-
-        res.json({
-            success: true,
-            status: paymentStatus.status,
-            order_id: orderId,
-            transaction: paymentStatus.transaction
-        });
+        res.json({ success: true, status: paymentStatus.status, order_id: orderId });
     } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: 'Internal server error'
-        });
+        res.status(500).json({ success: false, message: 'Internal server error' });
     }
 });
 
@@ -344,59 +255,29 @@ app.get('/api/check-payment/:orderId', async (req, res) => {
 app.post('/api/create-panel', async (req, res) => {
     try {
         const { order_id, email, panel_type } = req.body;
+        if (!order_id) return res.status(400).json({ success: false, message: 'Order ID diperlukan' });
 
-        if (!order_id) {
-            return res.status(400).json({
-                success: false,
-                message: 'Order ID diperlukan'
-            });
-        }
-
-        // Cek apakah order ada dan sudah dibayar
         const order = orders.get(order_id);
-        if (!order) {
-            return res.status(404).json({
-                success: false,
-                message: 'Order tidak ditemukan'
-            });
-        }
+        if (!order) return res.status(404).json({ success: false, message: 'Order tidak ditemukan' });
 
-        // Validasi status pembayaran
         const paidStatuses = ['paid', 'success', 'settled'];
         if (!paidStatuses.includes(order.status)) {
-            return res.status(400).json({
-                success: false,
-                message: 'Pembayaran belum berhasil. Status: ' + order.status
-            });
+            return res.status(400).json({ success: false, message: 'Pembayaran belum berhasil. Status: ' + order.status });
         }
+        if (order.panel_created) return res.status(400).json({ success: false, message: 'Panel sudah dibuat sebelumnya' });
 
-        if (order.panel_created) {
-            return res.status(400).json({
-                success: false,
-                message: 'Panel sudah dibuat sebelumnya'
-            });
-        }
-
-        // Buat panel di Pterodactyl
         const panelResult = await createPterodactylServer(
             'user_' + Date.now(),
             panel_type || order.panel_type,
             (email || order.email).split('@')[0]
         );
+        if (!panelResult.success) return res.status(500).json({ success: false, message: 'Gagal membuat panel' });
 
-        if (!panelResult.success) {
-            return res.status(500).json({
-                success: false,
-                message: 'Gagal membuat panel'
-            });
-        }
-
-        // Update order
         order.panel_created = true;
         order.panel_data = panelResult;
         orders.set(order_id, order);
 
-        // Kirim notifikasi ke Telegram dengan format HTML
+        // Notifikasi Telegram ke owner
         const ownerMsg = `<blockquote>✅ PANEL BARU DIBUAT</blockquote>\n\n` +
             `<b>📅 Waktu:</b> ${new Date().toLocaleString('id-ID')}\n` +
             `<b>📧 Email:</b> ${escapeHTML(order.email)}\n` +
@@ -408,81 +289,49 @@ app.post('/api/create-panel', async (req, res) => {
             `<b>💿 Disk:</b> ${panelResult.disk === 0 ? 'Unlimited' : panelResult.disk + 'MB'}\n` +
             `<b>⚡ CPU:</b> ${panelResult.cpu === 0 ? 'Unlimited' : panelResult.cpu + '%'}`;
 
-        const ownerKeyboard = {
-            inline_keyboard: [
-                [
-                    {
-                        text: '🛒 Beli Panel',
-                        url: config.URL
-                    }
-                ]
-            ]
-        };
-
-        // Kirim notifikasi ke Telegram
         try {
             const url = `https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/sendMessage`;
-            const response = await fetch(url, {
+            await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     chat_id: config.OWNER_ID,
                     text: ownerMsg,
-                    parse_mode: 'HTML',
-                    reply_markup: ownerKeyboard
+                    parse_mode: 'HTML'
                 })
             });
+        } catch (telegramError) {}
 
-            const result = await response.json();
-            if (!result.ok) {
-                // Silent fail for Telegram errors
-            }
-        } catch (telegramError) {
-            // Silent fail for Telegram errors
-        }
-
-        res.json({
-            success: true,
-            panel: panelResult,
-            message: 'Panel berhasil dibuat!'
-        });
+        res.json({ success: true, panel: panelResult, message: 'Panel berhasil dibuat!' });
     } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message || 'Internal server error'
-        });
+        res.status(500).json({ success: false, message: error.message || 'Internal server error' });
     }
 });
 
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🎨 ROUTE UTAMA (HTML) - BACA FILE DARI ROOT
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🎨 ROUTE UTAMA (toko.html)
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 app.get('/', async (req, res) => {
     try {
         let html = await fs.readFile(path.join(__dirname, 'toko.html'), 'utf-8');
-
-        // Siapkan data konfigurasi untuk dikirim ke client
         const configData = {
             VERSI_WEB: config.VERSI_WEB,
             DEVELOPER: config.DEVELOPER,
-            PRICE_1GB: config.PRICE_1GB || 500,
-            PRICE_2GB: config.PRICE_2GB || 500,
-            PRICE_3GB: config.PRICE_3GB || 500,
-            PRICE_4GB: config.PRICE_4GB || 500,
-            PRICE_5GB: config.PRICE_5GB || 500,
-            PRICE_6GB: config.PRICE_6GB || 500,
-            PRICE_7GB: config.PRICE_7GB || 500,
-            PRICE_8GB: config.PRICE_8GB || 500,
-            PRICE_9GB: config.PRICE_9GB || 500,
-            PRICE_10GB: config.PRICE_10GB || 500,
-            PRICE_UNLI: config.PRICE_UNLI || 500
+            PRICE_1GB: config.PRICE_1GB,
+            PRICE_2GB: config.PRICE_2GB,
+            PRICE_3GB: config.PRICE_3GB,
+            PRICE_4GB: config.PRICE_4GB,
+            PRICE_5GB: config.PRICE_5GB,
+            PRICE_6GB: config.PRICE_6GB,
+            PRICE_7GB: config.PRICE_7GB,
+            PRICE_8GB: config.PRICE_8GB,
+            PRICE_9GB: config.PRICE_9GB,
+            PRICE_10GB: config.PRICE_10GB,
+            PRICE_UNLI: config.PRICE_UNLI
         };
-
-        // Ganti placeholder di HTML
         html = html.replace(/{{VERSI_WEB}}/g, config.VERSI_WEB);
         html = html.replace(/{{DEVELOPER}}/g, config.DEVELOPER);
         html = html.replace('{{CONFIG_SCRIPT}}', JSON.stringify(configData));
-
         res.send(html);
     } catch (err) {
         console.error(err);
@@ -490,19 +339,12 @@ app.get('/', async (req, res) => {
     }
 });
 
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🚀 START SERVER
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-app.listen(PORT, HOST, () => {
-    console.log(`
-\x1b[1m\x1b[34m╔═╗╦ ╦╦═╗╦ ╦╔╦╗╔═╗╔═╗╦  \x1b[0m
-\x1b[1m\x1b[34m╠═╝╚╦╝╠╦╝║ ║ ║ ║╣ ╠═╝║  \x1b[0m
-\x1b[1m\x1b[34m╩   ╩ ╩╚═╚═╝ ╩ ╚═╝╩  ╩═╝\x1b[0m
-\x1b[1m\x1b[33mN O V A B O T   P A N E L   v${config.VERSI_WEB}\x1b[0m
-\x1b[1m\x1b[32m═══════════════════════════════════════\x1b[0m
-🌐 Server: http://${HOST}:${PORT}
-👤 Developer: ${config.DEVELOPER}
-📦 Version: ${config.VERSI_WEB}
-✅ Server ready!
-`);
-});
+// Untuk Vercel, export app
+module.exports = app;
+
+// Jika dijalankan langsung (bukan di Vercel)
+if (require.main === module) {
+    app.listen(PORT, () => {
+        console.log(`Server running at http://localhost:${PORT}`);
+    });
+}

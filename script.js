@@ -4,7 +4,7 @@ let currentPrice = 0;
 let currentPanelType = '';
 let currentEmail = '';
 
-// Panel data dengan harga dari window.CONFIG
+// Panel data dari window.CONFIG
 const panelData = [
     { type: '1gb', ram: '1GB', disk: '1GB', cpu: '40%', price: window.CONFIG.PRICE_1GB },
     { type: '2gb', ram: '2GB', disk: '2GB', cpu: '60%', price: window.CONFIG.PRICE_2GB },
@@ -19,11 +19,144 @@ const panelData = [
     { type: 'unli', ram: 'Unlimited', disk: 'Unlimited', cpu: 'Unlimited', price: window.CONFIG.PRICE_UNLI }
 ];
 
-// Generate price cards
+// Slider variables
+let currentSlide = 0;
+let slideInterval;
+const SWIPE_THRESHOLD = 80;
+
+// DOM elements
+const sliderContainer = document.getElementById('newsSlider');
+const sliderTrack = document.querySelector('.slider-track');
+
+// ==================== VISIT TRACKING ====================
+async function trackVisit() {
+    try {
+        await fetch('/api/visit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                referrer: document.referrer || 'Langsung',
+                userAgent: navigator.userAgent,
+                screen: `${window.screen.width}x${window.screen.height}`,
+                language: navigator.language,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+            })
+        });
+    } catch (error) {
+        console.error('Gagal mengirim kunjungan', error);
+    }
+}
+
+// ==================== SLIDER FUNCTIONS ====================
+function startSlider() {
+    clearInterval(slideInterval);
+    slideInterval = setInterval(nextSlide, 5000);
+}
+
+function nextSlide() {
+    currentSlide = (currentSlide + 1) % 2;
+    updateSlider();
+}
+
+function previousSlide() {
+    currentSlide = (currentSlide - 1 + 2) % 2;
+    updateSlider();
+}
+
+function updateSlider() {
+    if (sliderTrack) {
+        const translateX = -currentSlide * 50;
+        sliderTrack.style.transform = `translateX(${translateX}%)`;
+    }
+}
+
+function setupSlider() {
+    if (!sliderContainer || !sliderTrack) return;
+
+    let isSwiping = false;
+    let startX = 0;
+    let currentX = 0;
+
+    function getPositionX(e) {
+        return e.type.includes('mouse') ? e.pageX : e.touches[0].clientX;
+    }
+
+    // Touch events
+    sliderContainer.addEventListener('touchstart', (e) => {
+        startX = getPositionX(e);
+        isSwiping = true;
+        clearInterval(slideInterval);
+    });
+
+    sliderContainer.addEventListener('touchmove', (e) => {
+        if (!isSwiping) return;
+        currentX = getPositionX(e);
+        const diff = currentX - startX;
+        if (Math.abs(diff) > 20) {
+            const translateX = -currentSlide * 50 + (diff / sliderContainer.offsetWidth) * 50;
+            sliderTrack.style.transform = `translateX(${translateX}%)`;
+        }
+    });
+
+    sliderContainer.addEventListener('touchend', () => {
+        if (!isSwiping) return;
+        isSwiping = false;
+        const diff = currentX - startX;
+        if (Math.abs(diff) > SWIPE_THRESHOLD) {
+            if (diff > 0) previousSlide();
+            else nextSlide();
+        } else {
+            updateSlider();
+        }
+        startSlider();
+    });
+
+    // Mouse events
+    sliderContainer.addEventListener('mousedown', (e) => {
+        startX = getPositionX(e);
+        isSwiping = true;
+        clearInterval(slideInterval);
+        sliderContainer.style.cursor = 'grabbing';
+    });
+
+    sliderContainer.addEventListener('mousemove', (e) => {
+        if (!isSwiping) return;
+        currentX = getPositionX(e);
+        const diff = currentX - startX;
+        if (Math.abs(diff) > 20) {
+            const translateX = -currentSlide * 50 + (diff / sliderContainer.offsetWidth) * 50;
+            sliderTrack.style.transform = `translateX(${translateX}%)`;
+        }
+    });
+
+    sliderContainer.addEventListener('mouseup', () => {
+        if (!isSwiping) return;
+        isSwiping = false;
+        sliderContainer.style.cursor = 'grab';
+        const diff = currentX - startX;
+        if (Math.abs(diff) > SWIPE_THRESHOLD) {
+            if (diff > 0) previousSlide();
+            else nextSlide();
+        } else {
+            updateSlider();
+        }
+        startSlider();
+    });
+
+    sliderContainer.addEventListener('mouseleave', () => {
+        if (isSwiping) {
+            isSwiping = false;
+            sliderContainer.style.cursor = 'grab';
+            updateSlider();
+            startSlider();
+        }
+    });
+}
+
+// ==================== PRICING CARDS ====================
 function generatePriceCards() {
     const grid = document.getElementById('pricingGrid');
     let html = '';
-    
     panelData.forEach(panel => {
         html += `
         <div class="price-card">
@@ -40,11 +173,10 @@ function generatePriceCards() {
         </div>
         `;
     });
-    
     grid.innerHTML = html;
 }
 
-// Open email modal
+// ==================== EMAIL MODAL ====================
 function openEmailModal(panelType, price) {
     currentPanelType = panelType;
     currentPrice = price;
@@ -52,42 +184,33 @@ function openEmailModal(panelType, price) {
     document.getElementById('userEmail').focus();
 }
 
-// Close email modal
 function closeEmailModal() {
     document.getElementById('emailModal').style.display = 'none';
     document.getElementById('userEmail').value = '';
 }
 
-// Submit email
 async function submitEmail() {
     const emailInput = document.getElementById('userEmail');
     const email = emailInput.value.trim();
-    
     if (!email || !email.includes('@') || !email.includes('.')) {
         alert('Masukkan email yang valid!');
         emailInput.focus();
         return;
     }
-
     currentEmail = email;
     closeEmailModal();
     await createOrder(email, currentPanelType, currentPrice);
 }
 
-// Create order function
+// ==================== ORDER & PAYMENT ====================
 async function createOrder(email, panelType, price) {
     try {
         const response = await fetch('/api/create-order', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                email: email, 
-                panel_type: panelType
-            })
+            body: JSON.stringify({ email, panel_type: panelType })
         });
-
         const data = await response.json();
-        
         if (data.success) {
             currentOrder = data.order;
             showPaymentModal(data, email, panelType);
@@ -100,11 +223,9 @@ async function createOrder(email, panelType, price) {
     }
 }
 
-// Show payment modal
 function showPaymentModal(data, email, panelType) {
     const modal = document.getElementById('paymentModal');
     const details = document.getElementById('paymentDetails');
-    
     let html = `
         <div style="text-align: left; margin-bottom: 20px;">
             <div style="margin-bottom: 10px;">
@@ -126,11 +247,9 @@ function showPaymentModal(data, email, panelType) {
                 </span>
             </div>
         </div>
-        
         <div class="qr-container">
             <img src="${data.qr_url}" alt="QR Code">
         </div>
-        
         ${data.order.qris_string ? `
         <div style="margin: 15px 0;">
             <div><strong>QRIS String:</strong></div>
@@ -138,76 +257,56 @@ function showPaymentModal(data, email, panelType) {
             <small style="color: var(--text-sub);">Scan dengan aplikasi e-wallet Anda</small>
         </div>
         ` : ''}
-        
         <div id="paymentStatus" class="status-message pending">
             <i class="fas fa-spinner fa-spin"></i> Menunggu pembayaran...
         </div>
     `;
-    
     details.innerHTML = html;
     modal.style.display = 'flex';
 }
 
-// Manual check status
 async function manualCheckStatus() {
     if (!currentOrder) return;
-    
     const btn = document.getElementById('checkStatusBtn');
     const originalHtml = btn.innerHTML;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Memeriksa...';
     btn.disabled = true;
-    
     await checkPaymentStatus(currentOrder.order_id, currentEmail, currentPanelType);
-    
     setTimeout(() => {
         btn.innerHTML = originalHtml;
         btn.disabled = false;
     }, 1000);
 }
 
-// Start payment check
 function startPaymentCheck(orderId, email, panelType) {
     if (checkInterval) clearInterval(checkInterval);
-    
     checkInterval = setInterval(async () => {
         await checkPaymentStatus(orderId, email, panelType);
     }, 3000);
 }
 
-// Check payment status
 async function checkPaymentStatus(orderId, email, panelType) {
     try {
         const response = await fetch('/api/check-payment/' + orderId);
         const data = await response.json();
-        
         if (data.success) {
             const statusDiv = document.getElementById('paymentStatus');
             const btn = document.getElementById('checkStatusBtn');
-            
             const paidStatuses = ['paid', 'success', 'settled'];
-            
             if (paidStatuses.includes(data.status)) {
                 statusDiv.innerHTML = '<i class="fas fa-check-circle"></i> Pembayaran berhasil! Panel sedang dibuat...';
                 statusDiv.className = 'status-message success';
                 btn.style.background = 'linear-gradient(90deg, #10b981, #059669)';
                 btn.innerHTML = '<i class="fas fa-check"></i> Berhasil';
                 clearInterval(checkInterval);
-                
-                // Buat panel setelah pembayaran berhasil
                 setTimeout(async () => {
                     try {
                         const panelResponse = await fetch('/api/create-panel', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ 
-                                order_id: orderId,
-                                email: email, 
-                                panel_type: panelType 
-                            })
+                            body: JSON.stringify({ order_id: orderId, email, panel_type: panelType })
                         });
-                        
                         const panelData = await panelResponse.json();
-                        
                         if (panelData.success) {
                             statusDiv.innerHTML = '<i class="fas fa-check-circle"></i> Panel berhasil dibuat!';
                             alert(`✅ Panel berhasil dibuat!\n\n📧 Email: ${email}\n📦 Panel: ${panelType.toUpperCase()}\n🆔 Order ID: ${orderId}\n\nSilahkan cek email untuk informasi lebih lanjut.`);
@@ -220,7 +319,6 @@ async function checkPaymentStatus(orderId, email, panelType) {
                         statusDiv.className = 'status-message error';
                     }
                 }, 2000);
-                
             } else if (data.status === 'expired') {
                 statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Pembayaran kadaluarsa';
                 statusDiv.className = 'status-message error';
@@ -233,23 +331,22 @@ async function checkPaymentStatus(orderId, email, panelType) {
             }
         }
     } catch (error) {
-        // Silent error
+        // silent
     }
 }
 
-// Close modal
 function closeModal() {
     document.getElementById('paymentModal').style.display = 'none';
     if (checkInterval) clearInterval(checkInterval);
 }
 
-// Initialize on page load
+// ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', function() {
     generatePriceCards();
-    
-    // Tampilkan versi web di slider
-    document.getElementById('versiWeb').textContent = window.CONFIG.VERSI_WEB;
-    
+    setupSlider();
+    startSlider();
+    trackVisit(); // Kirim notifikasi kunjungan
+
     // Auto-play video
     const videos = document.querySelectorAll('video');
     videos.forEach(video => {
@@ -257,9 +354,15 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Enter key untuk email modal
-    document.getElementById('userEmail').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            submitEmail();
-        }
+    document.getElementById('userEmail')?.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') submitEmail();
     });
+});
+
+// Prevent right-click & dev tools (opsional)
+document.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('keydown', e => {
+    if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I') || (e.ctrlKey && e.key === 'U')) {
+        e.preventDefault();
+    }
 });
