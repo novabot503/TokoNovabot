@@ -991,7 +991,7 @@ app.get('/', (req, res) => {
         </div>
     </div>
 
-<!-- EMAIL MODAL - dengan logo Google kecil di atas dan input email untuk panel -->
+<!-- EMAIL MODAL -->
 <div id="emailModal" class="email-modal">
     <div class="email-modal-content">
         <!-- Logo Google kecil di paling atas -->
@@ -1003,13 +1003,15 @@ app.get('/', (req, res) => {
 
         <h2><i class="fas fa-envelope"></i> Email Panel yang Akan Dibuat</h2>
         <p style="color: var(--text-sub); margin-bottom: 20px;">
-            Masukkan email Anda untuk menerima detail panel
+            Masukkan email yang akan digunakan sebagai username panel Pterodactyl Anda
         </p>
 
-        <!-- Input email -->
-        <div class="email-input-group">
-            <i class="fas fa-envelope email-icon"></i>
-            <input type="email" id="userEmail" class="email-input" placeholder="contoh: nama@email.com" required>
+        <!-- Input email tanpa ikon (tombol bulat dihapus) -->
+        <div class="email-input-group" style="margin: 30px 0;">
+            <input type="email" id="userEmail" class="email-input" 
+                   placeholder="contoh: nama@email.com" 
+                   style="padding: 20px; text-align: center;" 
+                   required>
         </div>
 
         <div class="button-group">
@@ -1022,7 +1024,7 @@ app.get('/', (req, res) => {
         </div>
 
         <div class="email-note">
-            <i class="fas fa-info-circle"></i> Pastikan email aktif. Detail panel akan dikirim ke email ini.
+            <i class="fas fa-info-circle"></i> Email ini akan menjadi username login panel Anda. Pastikan Anda mengingatnya.
         </div>
     </div>
 </div>
