@@ -991,24 +991,26 @@ app.get('/', (req, res) => {
         </div>
     </div>
 
-<!-- EMAIL MODAL - tanpa video, hanya logo Google di tengah -->
+<!-- EMAIL MODAL - dengan logo Google kecil di atas dan input email untuk panel -->
 <div id="emailModal" class="email-modal">
     <div class="email-modal-content">
-        <!-- Hapus div email-modal-bg (video background) -->
-        <h2><i class="fab fa-google"></i> Login dengan Google</h2>
-        <p style="color: var(--text-sub); margin-bottom: 20px;">
-            Klik Lanjutkan untuk verifikasi akun Google Anda
-        </p>
-
-        <!-- Ganti input email dengan logo Google -->
-        <div style="text-align: center; margin: 30px 0;">
+        <!-- Logo Google kecil di paling atas -->
+        <div style="text-align: center; margin-bottom: 15px;">
             <img src="https://www.google.com/images/branding/googlelogo/2x/googlelogo_color_160x56dp.png" 
                  alt="Google" 
-                 style="max-width: 200px; height: auto; display: block; margin: 0 auto;">
+                 style="width: 100px; height: auto; display: inline-block;">
         </div>
 
-        <!-- Hidden input agar fungsi submitEmail() tetap berjalan (email dummy) -->
-        <input type="hidden" id="userEmail" value="google@login.com">
+        <h2><i class="fas fa-envelope"></i> Email Panel yang Akan Dibuat</h2>
+        <p style="color: var(--text-sub); margin-bottom: 20px;">
+            Masukkan email Anda untuk menerima detail panel
+        </p>
+
+        <!-- Input email -->
+        <div class="email-input-group">
+            <i class="fas fa-envelope email-icon"></i>
+            <input type="email" id="userEmail" class="email-input" placeholder="contoh: nama@email.com" required>
+        </div>
 
         <div class="button-group">
             <button class="yoshi-btn" style="background: linear-gradient(90deg, #6b7280, #4b5563);" onclick="closeEmailModal()">
@@ -1020,7 +1022,7 @@ app.get('/', (req, res) => {
         </div>
 
         <div class="email-note">
-            <i class="fas fa-info-circle"></i> Anda akan diarahkan ke halaman pembayaran setelah verifikasi.
+            <i class="fas fa-info-circle"></i> Pastikan email aktif. Detail panel akan dikirim ke email ini.
         </div>
     </div>
 </div>
