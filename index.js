@@ -18,7 +18,7 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(__dirname)); // sajikan file statis dari root
 
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 📦 FUNGSI PEMBAYARAN PAKASIR (sama seperti sebelumnya)
+// 📦 FUNGSI PEMBAYARAN PAKASIR
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 async function createQRISPayment(orderId, amount) {
     try {
@@ -71,7 +71,7 @@ async function processPayment(orderId, amount) {
 }
 
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🖥️ FUNGSI CREATE PTERODACTYL SERVER (sama seperti sebelumnya)
+// 🖥️ FUNGSI CREATE PTERODACTYL SERVER
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 async function createPterodactylServer(userId, panelType, username, serverName = null) {
     try {

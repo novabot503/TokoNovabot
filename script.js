@@ -113,6 +113,7 @@ function setupSlider() {
 
     // Mouse events
     sliderContainer.addEventListener('mousedown', (e) => {
+        e.preventDefault();
         startX = getPositionX(e);
         isSwiping = true;
         clearInterval(slideInterval);
@@ -121,6 +122,7 @@ function setupSlider() {
 
     sliderContainer.addEventListener('mousemove', (e) => {
         if (!isSwiping) return;
+        e.preventDefault();
         currentX = getPositionX(e);
         const diff = currentX - startX;
         if (Math.abs(diff) > 20) {
@@ -343,9 +345,9 @@ function closeModal() {
 // ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', function() {
     generatePriceCards();
-    setupSlider();
-    startSlider();
-    trackVisit(); // Kirim notifikasi kunjungan
+    setupSlider();   // <-- slider dipasang di sini
+    startSlider();   // <-- autoplay dimulai
+    trackVisit();
 
     // Auto-play video
     const videos = document.querySelectorAll('video');

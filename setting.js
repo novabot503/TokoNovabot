@@ -13,13 +13,12 @@ module.exports = {
     PAKASIR_PROJECT: "botzmarket",
     PAKASIR_API_KEY: "sHli68x22bvfaee3uChutmmbCSz8DaCh",
     URL: 'https://toko-novabot.vercel.app',
-    // Harga panel (opsional)
+    // Harga panel
     PRICE_1GB: 500,
     PRICE_2GB: 500,
     PRICE_3GB: 500,
     PRICE_4GB: 500,
     PRICE_5GB: 500,
-    PRICE_6GB: 500,
     PRICE_6GB: 500,
     PRICE_7GB: 500,
     PRICE_8GB: 500,

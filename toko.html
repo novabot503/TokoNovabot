@@ -6,7 +6,7 @@
     <title>Novabot Panel Store</title>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Orbitron:wght@500;700;900&family=VT323&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
-    <!-- CSS digabungkan di sini (sama seperti sebelumnya) -->
+    <!-- CSS (persis seperti yang Anda berikan) -->
     <style>
         /* ========================================= */
         /* 1. RESET & GLOBAL STYLES */
@@ -133,7 +133,7 @@
             line-height: 1; 
         }
 
-        /* SLIDER UTAMA - 2 VIDEO (style sama) */
+        /* SLIDER UTAMA - 2 VIDEO */
         .slider-container {
             width: 100%; 
             background: var(--bg-card); 
@@ -504,7 +504,7 @@
             </div>
         </div>
 
-        <!-- SLIDER DENGAN 2 VIDEO - sekarang bisa digeser -->
+        <!-- SLIDER DENGAN 2 VIDEO -->
         <div class="lux-section-title">Latest News</div>
         <div class="slider-container" id="newsSlider">
             <div class="slider-track">
@@ -541,7 +541,7 @@
         </div>
     </div>
 
-    <!-- EMAIL MODAL (untuk input email sebelum bayar) -->
+    <!-- EMAIL MODAL -->
     <div id="emailModal" class="email-modal">
         <div class="email-modal-content">
             <div class="email-modal-bg">
@@ -585,166 +585,7 @@
         </div>
     </div>
 
-    <!-- Sertakan script.js asli (jika ada) -->
+    <!-- Hanya satu script (script.js) yang mengatur semua fungsi termasuk slider -->
     <script src="/script.js"></script>
-    
-    <!-- Tambahan JavaScript untuk Slider (diadaptasi dari halaman login) -->
-    <script>
-        (function() {
-            // Slider variables
-            let currentSlide = 0;
-            let slideInterval;
-            let isDragging = false;
-            let startX = 0;
-            let currentX = 0;
-            const SWIPE_THRESHOLD = 80;
-            
-            const sliderContainer = document.getElementById('newsSlider');
-            const sliderTrack = document.querySelector('.slider-track');
-            
-            // Jika elemen tidak ditemukan, hentikan
-            if (!sliderContainer || !sliderTrack) return;
-            
-            // Fungsi untuk mendapatkan posisi X (touch/mouse)
-            function getPositionX(event) {
-                return event.type.includes('mouse') ? event.pageX : event.touches[0].clientX;
-            }
-            
-            // Update posisi slider berdasarkan currentSlide
-            function updateSlider() {
-                const translateX = -currentSlide * 50; // 50% per slide
-                sliderTrack.style.transform = `translateX(${translateX}%)`;
-            }
-            
-            // Pindah ke slide berikutnya
-            function nextSlide() {
-                currentSlide = (currentSlide + 1) % 2;
-                updateSlider();
-            }
-            
-            // Pindah ke slide sebelumnya
-            function previousSlide() {
-                currentSlide = (currentSlide - 1 + 2) % 2;
-                updateSlider();
-            }
-            
-            // Mulai autoplay
-            function startSlider() {
-                clearInterval(slideInterval);
-                slideInterval = setInterval(nextSlide, 5000);
-            }
-            
-            // Setup event listeners untuk swipe
-            function setupSlider() {
-                // Touch events (mobile)
-                sliderContainer.addEventListener('touchstart', (e) => {
-                    startX = getPositionX(e);
-                    isDragging = true;
-                    clearInterval(slideInterval);
-                });
-                
-                sliderContainer.addEventListener('touchmove', (e) => {
-                    if (!isDragging) return;
-                    currentX = getPositionX(e);
-                    const diff = currentX - startX;
-                    
-                    // Visual feedback saat geser
-                    if (Math.abs(diff) > 20) {
-                        const translateX = -currentSlide * 50 + (diff / sliderContainer.offsetWidth) * 50;
-                        sliderTrack.style.transform = `translateX(${translateX}%)`;
-                    }
-                });
-                
-                sliderContainer.addEventListener('touchend', () => {
-                    if (!isDragging) return;
-                    isDragging = false;
-                    
-                    const diff = currentX - startX;
-                    
-                    if (Math.abs(diff) > SWIPE_THRESHOLD) {
-                        if (diff > 0) {
-                            previousSlide(); // swipe kanan -> slide sebelumnya
-                        } else {
-                            nextSlide(); // swipe kiri -> slide berikutnya
-                        }
-                    } else {
-                        updateSlider(); // kembali ke posisi semula
-                    }
-                    
-                    // Restart autoplay setelah jeda
-                    setTimeout(() => {
-                        startSlider();
-                    }, 3000);
-                });
-                
-                // Mouse events (desktop)
-                sliderContainer.addEventListener('mousedown', (e) => {
-                    e.preventDefault(); // mencegah drag gambar
-                    startX = getPositionX(e);
-                    isDragging = true;
-                    clearInterval(slideInterval);
-                    sliderContainer.style.cursor = 'grabbing';
-                });
-                
-                sliderContainer.addEventListener('mousemove', (e) => {
-                    if (!isDragging) return;
-                    e.preventDefault();
-                    currentX = getPositionX(e);
-                    const diff = currentX - startX;
-                    
-                    if (Math.abs(diff) > 20) {
-                        const translateX = -currentSlide * 50 + (diff / sliderContainer.offsetWidth) * 50;
-                        sliderTrack.style.transform = `translateX(${translateX}%)`;
-                    }
-                });
-                
-                sliderContainer.addEventListener('mouseup', () => {
-                    if (!isDragging) return;
-                    isDragging = false;
-                    sliderContainer.style.cursor = 'grab';
-                    
-                    const diff = currentX - startX;
-                    
-                    if (Math.abs(diff) > SWIPE_THRESHOLD) {
-                        if (diff > 0) {
-                            previousSlide();
-                        } else {
-                            nextSlide();
-                        }
-                    } else {
-                        updateSlider();
-                    }
-                    
-                    setTimeout(() => {
-                        startSlider();
-                    }, 3000);
-                });
-                
-                sliderContainer.addEventListener('mouseleave', () => {
-                    if (isDragging) {
-                        isDragging = false;
-                        sliderContainer.style.cursor = 'grab';
-                        updateSlider();
-                        setTimeout(() => {
-                            startSlider();
-                        }, 3000);
-                    }
-                });
-            }
-            
-            // Inisialisasi slider saat halaman siap
-            function initSlider() {
-                setupSlider();
-                startSlider();
-            }
-            
-            // Jalankan setelah DOM siap
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', initSlider);
-            } else {
-                initSlider();
-            }
-        })();
-    </script>
 </body>
 </html>
