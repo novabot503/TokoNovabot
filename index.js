@@ -28,57 +28,50 @@ headers: {
 'Content-Type': 'application/json',
 'Accept': 'application/json'
 },
-            body: JSON.stringify({
-                project: config.PAKASIR_PROJECT,
-                api_key: config.PAKASIR_API_KEY,
-                order_id: orderId,
-                amount: amount
-            })
-        });
-        
-        const data = await response.json();
-        
-        if (!data.success && !data.payment) {
-            return null;
-        }
-        
-        const payment = data.payment || data;
-        return {
-            success: true,
-            payment_number: payment.payment_number || payment.code || '',
-            qris_string: payment.payment_number || payment.qris_string || '',
-            raw: data
-        };
-    } catch (error) {
-        return null;
-    }
+body: JSON.stringify({
+project: config.PAKASIR_PROJECT,
+api_key: config.PAKASIR_API_KEY,
+order_id: orderId,
+amount: amount
+})
+});
+const data = await response.json();
+if (!data.success && !data.payment) {
+return null;
 }
-
+const payment = data.payment || data;
+return {
+success: true,
+payment_number: payment.payment_number || payment.code || '',
+qris_string: payment.payment_number || payment.qris_string || '',
+raw: data
+};
+} catch (error) {
+return null;
+}
+}
 async function checkPaymentStatus(orderId) {
-    try {
-        const detailUrl = `https://app.pakasir.com/api/transactiondetail?project=${encodeURIComponent(config.PAKASIR_PROJECT)}&amount=0&order_id=${encodeURIComponent(orderId)}&api_key=${encodeURIComponent(config.PAKASIR_API_KEY)}`;
-        const response = await fetch(detailUrl);
-        const data = await response.json();
-        
-        const transaction = data.transaction || data || {};
-        
-        // Normalize status
-        let status = transaction.status || '';
-        if (typeof status === 'string') {
-            status = status.toLowerCase();
-            if (status === 'success') status = 'paid';
-            if (status === 'settled') status = 'paid';
-        }
-        
-        return {
-            success: true,
-            status: status,
-            transaction: transaction,
-            raw: data
-        };
-    } catch (error) {
-        return null;
-    }
+try {
+const detailUrl = `https://app.pakasir.com/api/transactiondetail?project=${encodeURIComponent(config.PAKASIR_PROJECT)}&amount=0&order_id=${encodeURIComponent(orderId)}&api_key=${encodeURIComponent(config.PAKASIR_API_KEY)}`;
+const response = await fetch(detailUrl);
+const data = await response.json();
+const transaction = data.transaction || data || {};
+// Normalize status
+let status = transaction.status || '';
+if (typeof status === 'string') {
+status = status.toLowerCase();
+if (status === 'success') status = 'paid';
+if (status === 'settled') status = 'paid';
+}
+return {
+success: true,
+status: status,
+transaction: transaction,
+raw: data
+};
+} catch (error) {
+return null;
+}
 }
 
 async function processPayment(orderId, amount) {
@@ -998,33 +991,39 @@ app.get('/', (req, res) => {
         </div>
     </div>
 
-    <!-- EMAIL MODAL (untuk input email sebelum bayar) -->
-    <div id="emailModal" class="email-modal">
-        <div class="email-modal-content">
-            <div class="email-modal-bg">
-                <video src="https://files.catbox.moe/7iyjd5.mp4" autoplay muted loop playsinline></video>
-            </div>
-            <h2><i class="fas fa-envelope"></i> Masukkan Email</h2>
-            <p style="color: var(--text-sub); margin-bottom: 20px;">
-                Masukkan email Anda untuk menerima informasi panel
-            </p>
-            <div class="email-input-group">
-                <i class="fas fa-envelope email-icon"></i>
-                <input type="email" id="userEmail" class="email-input" placeholder="contoh: nama@email.com" required>
-            </div>
-            <div class="button-group">
-                <button class="yoshi-btn" style="background: linear-gradient(90deg, #6b7280, #4b5563);" onclick="closeEmailModal()">
-                    <i class="fas fa-times"></i> Batal
-                </button>
-                <button class="email-submit-btn" onclick="submitEmail()">
-                    <i class="fas fa-check"></i> Lanjutkan
-                </button>
-            </div>
-            <div class="email-note">
-                <i class="fas fa-info-circle"></i> Pastikan email aktif. Detail panel akan dikirim ke email ini.
-            </div>
+<!-- EMAIL MODAL - tanpa video, hanya logo Google di tengah -->
+<div id="emailModal" class="email-modal">
+    <div class="email-modal-content">
+        <!-- Hapus div email-modal-bg (video background) -->
+        <h2><i class="fab fa-google"></i> Login dengan Google</h2>
+        <p style="color: var(--text-sub); margin-bottom: 20px;">
+            Klik Lanjutkan untuk verifikasi akun Google Anda
+        </p>
+
+        <!-- Ganti input email dengan logo Google -->
+        <div style="text-align: center; margin: 30px 0;">
+            <img src="https://www.google.com/images/branding/googlelogo/2x/googlelogo_color_160x56dp.png" 
+                 alt="Google" 
+                 style="max-width: 200px; height: auto; display: block; margin: 0 auto;">
+        </div>
+
+        <!-- Hidden input agar fungsi submitEmail() tetap berjalan (email dummy) -->
+        <input type="hidden" id="userEmail" value="google@login.com">
+
+        <div class="button-group">
+            <button class="yoshi-btn" style="background: linear-gradient(90deg, #6b7280, #4b5563);" onclick="closeEmailModal()">
+                <i class="fas fa-times"></i> Batal
+            </button>
+            <button class="email-submit-btn" onclick="submitEmail()">
+                <i class="fas fa-check"></i> Lanjutkan
+            </button>
+        </div>
+
+        <div class="email-note">
+            <i class="fas fa-info-circle"></i> Anda akan diarahkan ke halaman pembayaran setelah verifikasi.
         </div>
     </div>
+</div>
 
     <!-- PAYMENT MODAL -->
     <div id="paymentModal" class="modal">
