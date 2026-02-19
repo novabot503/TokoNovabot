@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Novabot Panel</title>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Orbitron:wght@500;700;900&family=VT323&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
+    <!-- Konfigurasi dari backend -->
+    <script>
+        window.CONFIG = {{CONFIG_SCRIPT}};
+    </script>
+</head>
+<body>
+    <!-- HEADER -->
+    <div class="custom-header">
+        <div class="header-left">
+            <div class="header-title">NOVABOT PANEL</div>
+        </div>
+        <div style="color: var(--text-sub); font-size: 12px;">
+            <i class="fas fa-bolt"></i> Powered by NovaBot
+        </div>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div class="page-container">
+        <!-- HEADER CARD -->
+        <div class="lux-header-card">
+            <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px;">
+                <div class="lux-icon-box"><i class="fas fa-server"></i></div>
+                <div class="lux-head-text">
+                    <p>Welcome to</p>
+                    <h2>NovaBot Panel Store</h2>
+                </div>
+            </div>
+            <div style="font-size: 14px; opacity: 0.9;">
+                Jual panel Pterodactyl terbaik dengan harga terjangkau. Pembayaran via QRIS.
+            </div>
+        </div>
+
+        <!-- NEWS SLIDER -->
+        <div class="lux-section-title">Latest News</div>
+        <div class="slider-container">
+            <div class="slide">
+                <video src="https://files.catbox.moe/7iyjd5.mp4" autoplay muted loop playsinline></video>
+                <div class="lux-news-content">
+                    <h3>NovaBot Panel v<span id="versiWeb"></span></h3>
+                    <p>Panel Pterodactyl siap pakai dengan sistem pembayaran otomatis</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- PRICING SECTION -->
+        <div class="lux-section-title">Pilih Panel Anda</div>
+        
+        <div class="pricing-grid" id="pricingGrid">
+            <!-- Price cards akan di-generate oleh JavaScript -->
+        </div>
+
+        <!-- FOOTER -->
+        <div class="footer">
+            <p>© 2026 NovaBot Panel - All rights reserved</p>
+            <p style="margin-top: 10px;">
+                <i class="fab fa-telegram"></i> {{DEVELOPER}} • 
+                <i class="fas fa-code"></i> Version {{VERSI_WEB}}
+            </p>
+        </div>
+    </div>
+
+    <!-- EMAIL MODAL dengan VIDEO BACKGROUND -->
+    <div id="emailModal" class="email-modal">
+        <div class="email-modal-content">
+            <div class="email-modal-bg">
+                <video src="https://files.catbox.moe/7iyjd5.mp4" autoplay muted loop playsinline></video>
+            </div>
+            <h2><i class="fas fa-envelope"></i> Masukkan Email</h2>
+            <p style="color: var(--text-sub); margin-bottom: 20px;">
+                Masukkan email Anda untuk menerima informasi panel
+            </p>
+            <div class="email-input-group">
+                <i class="fas fa-envelope email-icon"></i>
+                <input type="email" id="userEmail" class="email-input" placeholder="contoh: nama@email.com" required>
+            </div>
+            <div class="button-group">
+                <button class="yoshi-btn" style="background: linear-gradient(90deg, #6b7280, #4b5563);" onclick="closeEmailModal()">
+                    <i class="fas fa-times"></i> Batal
+                </button>
+                <button class="email-submit-btn" onclick="submitEmail()">
+                    <i class="fas fa-check"></i> Lanjutkan
+                </button>
+            </div>
+            <div class="email-note">
+                <i class="fas fa-info-circle"></i> Pastikan email aktif. Detail panel akan dikirim ke email ini.
+            </div>
+        </div>
+    </div>
+
+    <!-- PAYMENT MODAL -->
+    <div id="paymentModal" class="modal">
+        <div class="modal-content">
+            <h2><i class="fas fa-qrcode"></i> Bayar dengan QRIS</h2>
+            
+            <div id="paymentDetails">
+                <!-- Payment details akan diisi oleh JavaScript -->
+            </div>
+            
+            <div class="button-group">
+                <button class="close-btn" onclick="closeModal()">
+                    <i class="fas fa-times"></i> Tutup
+                </button>
+                <button class="yoshi-btn" id="checkStatusBtn" onclick="manualCheckStatus()">
+                    <i class="fas fa-sync-alt"></i> Cek Status
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/script.js"></script>
+</body>
+</html>

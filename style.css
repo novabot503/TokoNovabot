@@ -1,0 +1,448 @@
+/* ========================================= */
+/* 1. RESET & GLOBAL STYLES */
+/* ========================================= */
+:root {
+    --bg-main: #02040a;       
+    --bg-card: #0b0f19;       
+    --primary: #3a6df0;       
+    --accent-red: #ff3b30;    
+    --accent-gold: #ffcc00;   
+    --text-main: #ffffff;
+    --text-sub: #8b9bb4;
+    --border-color: #1c2538;
+}
+
+* { 
+    box-sizing: border-box; margin: 0; padding: 0; 
+    -webkit-tap-highlight-color: transparent; 
+    outline: none;
+}
+
+body {
+    font-family: 'Rajdhani', sans-serif;
+    background: var(--bg-main);
+    color: var(--text-main);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    position: relative; 
+    overflow-x: hidden; 
+    padding-bottom: 80px; 
+}
+
+::-webkit-scrollbar { width: 0px; }
+
+/* ========================================= */
+/* 2. HEADER */
+/* ========================================= */
+.custom-header {
+    position: fixed; top: 0; left: 0; width: 100%; height: 60px;
+    background: rgba(2, 4, 10, 0.95); backdrop-filter: blur(10px);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px; z-index: 1000;
+    border-bottom: 1px solid var(--border-color);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+}
+
+.header-left { display: flex; align-items: center; gap: 15px; }
+.header-title { font-family: 'Orbitron', sans-serif; font-size: 20px; font-weight: 700; color: #fff; letter-spacing: 1px; }
+
+/* ========================================= */
+/* 3. DASHBOARD COMPONENTS */
+/* ========================================= */
+.page-container { 
+    padding: 80px 20px 20px 20px; 
+}
+
+.lux-header-card {
+    background: linear-gradient(135deg, #1e3c72, #2a5298); 
+    border-radius: 20px; padding: 25px 20px; color: white;
+    box-shadow: 0 10px 30px rgba(30, 60, 114, 0.3);
+    margin-bottom: 30px; position: relative; overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+.lux-icon-box { width: 50px; height: 50px; background: rgba(255,255,255,0.2); border-radius: 12px; display: flex; justify-content: center; align-items: center; font-size: 24px; backdrop-filter: blur(5px); }
+
+.lux-head-text h2 { font-family: 'Orbitron'; font-size: 18px; margin-bottom: 2px; letter-spacing: 1px; }
+.lux-head-text p { font-size: 12px; color: rgba(255,255,255,0.8); font-family: 'Rajdhani'; }
+
+.lux-section-title { 
+    font-family: 'Orbitron'; font-size: 16px; color: #fff; 
+    margin-bottom: 15px; letter-spacing: 1px; 
+    padding-left: 5px; border-left: 3px solid var(--primary); 
+    line-height: 1; 
+}
+
+/* SLIDER */
+.slider-container {
+    width: 100%; background: var(--bg-card); border-radius: 20px; overflow: hidden;
+    border: 1px solid var(--border-color); box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+    margin-bottom: 30px; position: relative; touch-action: pan-y; user-select: none;
+    height: 200px;
+}
+
+.slide { 
+    min-width: 100%; height: 100%; position: relative; display: block; 
+}
+
+.slide video { 
+    width: 100%; height: 100%; object-fit: cover; display: block; 
+    border-bottom: 1px solid rgba(255,255,255,0.1); pointer-events: none; 
+}
+
+.lux-news-content { 
+    position: absolute; bottom: 0; left: 0; width: 100%; padding: 20px; 
+    display: flex; flex-direction: column; justify-content: flex-end;
+    background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.6) 50%, transparent 100%);
+    z-index: 5;
+}
+
+.lux-news-content h3 { font-family: 'Orbitron'; font-size: 16px; color: #fff; margin-bottom: 5px; text-shadow: 0 2px 4px rgba(0,0,0,0.8); }
+.lux-news-content p { font-size: 12px; color: #d0d0d0; text-shadow: 0 1px 2px rgba(0,0,0,0.8); }
+
+/* PRICING GRID */
+.pricing-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 15px;
+    margin-bottom: 30px;
+}
+
+.price-card {
+    background: var(--bg-card);
+    border-radius: 15px;
+    padding: 20px;
+    text-align: center;
+    border: 2px solid var(--border-color);
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.price-card:hover {
+    border-color: var(--primary);
+    transform: translateY(-5px);
+    box-shadow: 0 10px 25px rgba(58, 109, 240, 0.2);
+}
+
+.panel-type {
+    font-family: 'Orbitron';
+    font-size: 1.5rem;
+    color: var(--primary);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+}
+
+.panel-specs {
+    font-size: 0.9rem;
+    color: var(--text-sub);
+    margin-bottom: 15px;
+    line-height: 1.4;
+}
+
+.price {
+    font-size: 2rem;
+    font-weight: bold;
+    color: var(--accent-gold);
+    margin: 15px 0;
+}
+
+.price-input {
+    width: 100%;
+    padding: 12px;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: white;
+    font-family: 'VT323', monospace;
+    font-size: 16px;
+    margin-bottom: 15px;
+    text-align: center;
+}
+
+.price-input::placeholder {
+    color: var(--text-sub);
+}
+
+.yoshi-btn { 
+    width: 100%; 
+    padding: 16px; 
+    margin-top: 10px; 
+    background: linear-gradient(90deg, #1e3c72, #2a5298); 
+    border: none; 
+    border-radius: 50px; 
+    color: #fff; 
+    font-family: 'Orbitron'; 
+    font-size: 16px; 
+    font-weight: bold; 
+    cursor: pointer; 
+    box-shadow: 0 0 20px rgba(58, 109, 240, 0.3); 
+    display: flex; 
+    justify-content: center; 
+    align-items: center; 
+    gap: 10px; 
+    transition: 0.2s; 
+}
+
+.yoshi-btn:active { 
+    transform: scale(0.98); 
+}
+
+.yoshi-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* MODAL STYLES */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.9);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-content {
+    background: var(--bg-card);
+    padding: 30px;
+    border-radius: 20px;
+    max-width: 400px;
+    width: 90%;
+    text-align: center;
+    border: 2px solid var(--primary);
+    box-shadow: 0 0 30px rgba(58, 109, 240, 0.2);
+}
+
+.modal h2 {
+    font-family: 'Orbitron';
+    color: var(--primary);
+    margin-bottom: 20px;
+    font-size: 1.5rem;
+}
+
+.qr-container {
+    margin: 20px 0;
+    padding: 15px;
+    background: white;
+    border-radius: 10px;
+    display: inline-block;
+}
+
+.qr-container img {
+    width: 250px;
+    height: 250px;
+    display: block;
+}
+
+.payment-info {
+    background: rgba(255,255,255,0.1);
+    padding: 15px;
+    border-radius: 10px;
+    margin: 15px 0;
+    font-family: monospace;
+    word-break: break-all;
+    font-size: 12px;
+    color: #fff;
+}
+
+.status-message {
+    margin: 15px 0;
+    padding: 10px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.1);
+    font-size: 14px;
+    color: var(--text-sub);
+}
+
+.status-message.success {
+    background: rgba(0, 255, 136, 0.1);
+    color: #00ff88;
+    border: 1px solid #00ff88;
+}
+
+.status-message.error {
+    background: rgba(255, 59, 48, 0.1);
+    color: #ff3b30;
+    border: 1px solid #ff3b30;
+}
+
+.status-message.pending {
+    background: rgba(255, 204, 0, 0.1);
+    color: #ffcc00;
+    border: 1px solid #ffcc00;
+}
+
+.close-btn {
+    background: var(--accent-red);
+    color: white;
+    border: none;
+    padding: 12px 25px;
+    border-radius: 8px;
+    font-family: 'Orbitron';
+    cursor: pointer;
+    margin-top: 15px;
+}
+
+/* EMAIL MODAL STYLES */
+.email-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.9);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+}
+
+.email-modal-content {
+    background: var(--bg-card);
+    padding: 40px 30px;
+    border-radius: 20px;
+    max-width: 500px;
+    width: 90%;
+    text-align: center;
+    border: 2px solid var(--primary);
+    box-shadow: 0 0 40px rgba(58, 109, 240, 0.3);
+    position: relative;
+    overflow: hidden;
+}
+
+.email-modal-bg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0.1;
+    z-index: -1;
+}
+
+.email-modal-bg video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.email-modal h2 {
+    font-family: 'Orbitron';
+    color: var(--primary);
+    margin-bottom: 20px;
+    font-size: 1.8rem;
+    text-shadow: 0 0 10px rgba(58, 109, 240, 0.5);
+}
+
+.email-input-group {
+    margin: 30px 0;
+    position: relative;
+}
+
+.email-input {
+    width: 100%;
+    padding: 20px 20px 20px 50px;
+    background: rgba(255,255,255,0.1);
+    border: 2px solid var(--border-color);
+    border-radius: 15px;
+    color: white;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 18px;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+}
+
+.email-input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 20px rgba(58, 109, 240, 0.3);
+    outline: none;
+}
+
+.email-input::placeholder {
+    color: rgba(255,255,255,0.5);
+}
+
+.email-icon {
+    position: absolute;
+    left: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--primary);
+    font-size: 20px;
+}
+
+.email-submit-btn {
+    width: 100%;
+    padding: 20px;
+    background: linear-gradient(90deg, #1e3c72, #2a5298);
+    border: none;
+    border-radius: 15px;
+    color: #fff;
+    font-family: 'Orbitron';
+    font-size: 18px;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 0 0 25px rgba(58, 109, 240, 0.4);
+    transition: all 0.3s ease;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+}
+
+.email-submit-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0 35px rgba(58, 109, 240, 0.6);
+}
+
+.email-submit-btn:active {
+    transform: translateY(0);
+}
+
+.email-note {
+    margin-top: 20px;
+    color: var(--text-sub);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.button-group {
+    display: flex;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+/* FOOTER */
+.footer {
+    text-align: center;
+    padding: 20px;
+    margin-top: 30px;
+    border-top: 1px solid var(--border-color);
+    color: var(--text-sub);
+    font-size: 12px;
+}
+
+@media (max-width: 768px) {
+    .pricing-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .modal-content {
+        padding: 20px;
+    }
+    
+    .qr-container img {
+        width: 200px;
+        height: 200px;
+    }
+    
+    .email-modal-content {
+        padding: 30px 20px;
+    }
+}
