@@ -468,6 +468,9 @@ app.get('/', (req, res) => {
     <meta property="og:title" content="Novabot Panel Store">
     <meta property="og:description" content="Jual panel Pterodactyl terbaik dengan harga terjangkau. Pembayaran via QRIS.">
     <meta property="og:image" content="https://files.catbox.moe/92681q.jpg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:type" content="image/jpeg">
 
     <!-- Twitter Card (juga dipakai Telegram) -->
     <meta property="twitter:card" content="summary_large_image">
