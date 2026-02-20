@@ -334,6 +334,7 @@ message: 'Internal server error'
 }
 })();
 });
+
 app.get('/api/check-payment/:orderId', async (req, res) => {
 try {
 const { orderId } = req.params;
@@ -362,6 +363,7 @@ message: 'Internal server error'
 });
 }
 });
+
 app.post('/api/create-panel', async (req, res) => {
 try {
 const { order_id, email, panel_type } = req.body;
@@ -454,6 +456,98 @@ message: error.message || 'Internal server error'
 });
 
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🔔 WEBHOOK UNTUK PAKASIR
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+app.post('/api/webhook/pakasir', async (req, res) => {
+try {
+const data = req.body;
+console.log('Webhook received:', JSON.stringify(data, null, 2));
+
+// Verifikasi token jika diperlukan (misal dengan query parameter ?token=xxx)
+const token = req.query.token;
+if (config.WEBHOOK_TOKEN && token !== config.WEBHOOK_TOKEN) {
+return res.status(401).json({ success: false, message: 'Unauthorized' });
+}
+
+// Ambil order_id dari data yang dikirim (sesuaikan dengan struktur Pakasir)
+// Berdasarkan log, mereka mengirim "Order ID: ORDER_1771585540595_SPDPK726J"
+// Jadi kemungkinan fieldnya adalah "order_id"
+const orderId = data.order_id || data.orderId;
+if (!orderId) {
+return res.status(400).json({ success: false, message: 'No order_id' });
+}
+
+// Cari order
+const order = orders.get(orderId);
+if (!order) {
+return res.status(404).json({ success: false, message: 'Order not found' });
+}
+
+// Tentukan status dari data (misal: data.status, data.transaction_status)
+let status = data.status || data.transaction_status || '';
+if (typeof status === 'string') {
+status = status.toLowerCase();
+if (status === 'success' || status === 'settled') status = 'paid';
+}
+
+// Update status order
+order.status = status;
+orders.set(orderId, order);
+
+// Jika status paid dan panel belum dibuat, buat panel
+if (status === 'paid' && !order.panel_created) {
+console.log(`Payment received for order ${orderId}, creating panel...`);
+const panelResult = await createPterodactylServer(order.email, order.panel_type);
+if (panelResult.success) {
+order.panel_created = true;
+order.panel_data = panelResult;
+orders.set(orderId, order);
+
+// Kirim notifikasi ke owner
+const ownerMsg = `<blockquote>✅ PANEL BARU DIBUAT VIA WEBHOOK</blockquote>\n\n` +
+`<b>📅 Waktu:</b> ${new Date().toLocaleString('id-ID')}\n` +
+`<b>📧 Email:</b> ${escapeHTML(order.email)}\n` +
+`<b>📦 Tipe Panel:</b> ${order.panel_type.toUpperCase()}\n` +
+`<b>💰 Harga:</b> Rp ${order.amount.toLocaleString('id-ID')}\n` +
+`<b>🆔 Server ID:</b> <code>${panelResult.serverId}</code>\n` +
+`<b>🏷️ Nama Server:</b> ${escapeHTML(panelResult.name)}\n` +
+`<b>💾 RAM:</b> ${panelResult.ram === 0 ? 'Unlimited' : panelResult.ram + 'MB'}\n` +
+`<b>💿 Disk:</b> ${panelResult.disk === 0 ? 'Unlimited' : panelResult.disk + 'MB'}\n` +
+`<b>⚡ CPU:</b> ${panelResult.cpu === 0 ? 'Unlimited' : panelResult.cpu + '%'}`;
+
+try {
+const url = `https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/sendMessage`;
+await fetch(url, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({
+chat_id: config.OWNER_ID,
+text: ownerMsg,
+parse_mode: 'HTML',
+reply_markup: { inline_keyboard: [[{ text: '🛒 Beli Panel', url: config.URL }]] }
+})
+});
+} catch (telegramError) {
+// ignore
+}
+
+return res.json({ success: true, message: 'Panel created via webhook' });
+} else {
+// Gagal membuat panel, tetap respon sukses agar Pakasir tidak mengulang
+console.error(`Failed to create panel for order ${orderId}`);
+return res.json({ success: true, message: 'Payment received but panel creation failed' });
+}
+}
+
+// Jika bukan paid atau panel sudah ada
+res.json({ success: true, message: 'Webhook processed' });
+} catch (error) {
+console.error('Webhook error:', error);
+res.status(500).json({ success: false, message: 'Internal server error' });
+}
+});
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 🎨 ROUTE UTAMA (HTML) - DENGAN SLIDER 2 VIDEO
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 app.get('/', (req, res) => {
@@ -462,7 +556,7 @@ const html = `
 <html lang="id">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=0.65, user-scalable=no" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=0.50, user-scalable=no" />
 <title>Novabot Panel Store</title>
 
 <!-- Favicon -->
@@ -474,7 +568,7 @@ const html = `
 
 <!-- Meta tag untuk semua platform (WhatsApp, Telegram, Facebook, Twitter) - hanya teks, tanpa gambar -->
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://toko-novabot.vercel.app">
+<meta property="og:url" content="https://novabot-store.vercel.app">
 <meta property="og:title" content="Novabot Panel Store">
 <meta property="og:description" content="Jual panel Pterodactyl terbaik dengan harga terjangkau. Pembayaran via QRIS.">
 <meta name="twitter:card" content="summary">
