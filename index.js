@@ -36,10 +36,21 @@ if (!data.success && !data.payment) {
 return null;
 }
 const payment = data.payment || data;
+// Ambil expiry time dari response (mungkin dari payment.expired_at atau data.expired_at)
+let expiryTime = null;
+if (payment.expired_at) {
+expiryTime = payment.expired_at;
+} else if (data.expired_at) {
+expiryTime = data.expired_at;
+} else {
+// Default 15 menit dari sekarang
+expiryTime = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+}
 return {
 success: true,
 payment_number: payment.payment_number || payment.code || '',
 qris_string: payment.payment_number || payment.qris_string || '',
+expiry_time: expiryTime,
 raw: data
 };
 } catch (error) {
@@ -313,6 +324,7 @@ panel_type: panel_type,
 amount: amount,
 payment_number: payment.payment_number,
 qris_string: payment.qris_string,
+expiry_time: payment.expiry_time, // simpan expiry time
 status: 'pending',
 created_at: new Date().toISOString(),
 panel_created: false,
@@ -350,11 +362,13 @@ if (order) {
 order.status = paymentStatus.status;
 orders.set(orderId, order);
 }
+// Kirim juga expiry_time jika ada
 res.json({
 success: true,
 status: paymentStatus.status,
 order_id: orderId,
-transaction: paymentStatus.transaction
+transaction: paymentStatus.transaction,
+expiry_time: order ? order.expiry_time : null
 });
 } catch (error) {
 res.status(500).json({ 
@@ -469,9 +483,7 @@ if (config.WEBHOOK_TOKEN && token !== config.WEBHOOK_TOKEN) {
 return res.status(401).json({ success: false, message: 'Unauthorized' });
 }
 
-// Ambil order_id dari data yang dikirim (sesuaikan dengan struktur Pakasir)
-// Berdasarkan log, mereka mengirim "Order ID: ORDER_1771585540595_SPDPK726J"
-// Jadi kemungkinan fieldnya adalah "order_id"
+// Ambil order_id dari data yang dikirim
 const orderId = data.order_id || data.orderId;
 if (!orderId) {
 return res.status(400).json({ success: false, message: 'No order_id' });
@@ -479,11 +491,13 @@ return res.status(400).json({ success: false, message: 'No order_id' });
 
 // Cari order
 const order = orders.get(orderId);
+// Jika order tidak ditemukan, kita tetap respon 200 agar Pakasir tidak mengulang
 if (!order) {
-return res.status(404).json({ success: false, message: 'Order not found' });
+console.log(`Order ${orderId} not found in this instance, but webhook received`);
+return res.json({ success: true, message: 'Webhook received but order not in this instance' });
 }
 
-// Tentukan status dari data (misal: data.status, data.transaction_status)
+// Tentukan status dari data
 let status = data.status || data.transaction_status || '';
 if (typeof status === 'string') {
 status = status.toLowerCase();
@@ -1165,6 +1179,7 @@ required>
 // ==================== GLOBAL VARIABLES ====================
 let currentOrder = null;
 let checkInterval = null;
+let expiryInterval = null; // untuk countdown
 let currentPrice = 0;
 let currentPanelType = '';
 let currentEmail = '';
@@ -1341,6 +1356,7 @@ if (data.success) {
 currentOrder = data.order;
 showPaymentModal(data, email, panelType);
 startPaymentCheck(data.order.order_id, email, panelType);
+startExpiryCountdown(data.order.expiry_time);
 } else {
 alert(data.message || 'Gagal membuat order');
 }
@@ -1351,6 +1367,19 @@ alert('Terjadi kesalahan, silahkan coba lagi');
 function showPaymentModal(data, email, panelType) {
 const modal = document.getElementById('paymentModal');
 const details = document.getElementById('paymentDetails');
+let expiryHtml = '';
+if (data.order.expiry_time) {
+const expiryDate = new Date(data.order.expiry_time);
+const now = new Date();
+const diffMs = expiryDate - now;
+const diffMin = Math.floor(diffMs / 60000);
+const diffSec = Math.floor((diffMs % 60000) / 1000);
+if (diffMs > 0) {
+expiryHtml = \`<div style="margin:10px 0; color: var(--accent-gold);">⏳ Waktu tersisa: <span id="countdown">\${diffMin} menit \${diffSec} detik</span></div>\`;
+} else {
+expiryHtml = '<div style="margin:10px 0; color: var(--accent-red);">⏳ Waktu pembayaran telah habis</div>';
+}
+}
 let html = \`
 <div style="text-align: left; margin-bottom: 20px;">
 <div style="margin-bottom: 10px;">
@@ -1371,6 +1400,7 @@ let html = \`
 Rp \${currentPrice.toLocaleString('id-ID')}
 </span>
 </div>
+\${expiryHtml}
 </div>
 <div class="qr-container">
 <img src="\${data.qr_url}" alt="QR Code">
@@ -1388,6 +1418,30 @@ Rp \${currentPrice.toLocaleString('id-ID')}
 \`;
 details.innerHTML = html;
 modal.style.display = 'flex';
+}
+function startExpiryCountdown(expiryTime) {
+if (!expiryTime) return;
+if (expiryInterval) clearInterval(expiryInterval);
+const expiryDate = new Date(expiryTime);
+expiryInterval = setInterval(() => {
+const now = new Date();
+const diffMs = expiryDate - now;
+if (diffMs <= 0) {
+document.getElementById('countdown')?.innerText = '0 menit 0 detik';
+clearInterval(expiryInterval);
+// Opsional: tampilkan pesan expired jika status masih pending
+const statusDiv = document.getElementById('paymentStatus');
+if (statusDiv && statusDiv.classList.contains('pending')) {
+statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Waktu pembayaran habis';
+statusDiv.className = 'status-message error';
+}
+return;
+}
+const diffMin = Math.floor(diffMs / 60000);
+const diffSec = Math.floor((diffMs % 60000) / 1000);
+const el = document.getElementById('countdown');
+if (el) el.innerText = \`\${diffMin} menit \${diffSec} detik\`;
+}, 1000);
 }
 async function manualCheckStatus() {
 if (!currentOrder) return;
@@ -1496,7 +1550,8 @@ statusDiv.innerHTML = '<i class="fas fa-check-circle"></i> Pembayaran berhasil! 
 statusDiv.className = 'status-message success';
 btn.style.background = 'linear-gradient(90deg, #10b981, #059669)';
 btn.innerHTML = '<i class="fas fa-check"></i> Berhasil';
-clearInterval(checkInterval); // Hentikan pengecekan
+clearInterval(checkInterval);
+clearInterval(expiryInterval);
 // Langsung panggil create-panel
 try {
 const panelResponse = await fetch('/api/create-panel', {
@@ -1510,7 +1565,6 @@ showPanelData(panelData);
 } else {
 statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Gagal membuat panel: ' + panelData.message;
 statusDiv.className = 'status-message error';
-// Tampilkan tombol coba manual? Bisa ditambahkan, tapi biarkan saja
 }
 } catch (panelError) {
 statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error membuat panel, silahkan hubungi admin.';
@@ -1521,7 +1575,8 @@ statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Pembayaran ka
 statusDiv.className = 'status-message error';
 btn.style.background = 'linear-gradient(90deg, #ef4444, #dc2626)';
 btn.innerHTML = '<i class="fas fa-times"></i> Gagal';
-clearInterval(checkInterval); // Hentikan pengecekan
+clearInterval(checkInterval);
+clearInterval(expiryInterval);
 } else if (data.status === 'pending') {
 statusDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menunggu pembayaran...';
 statusDiv.className = 'status-message pending';
@@ -1539,6 +1594,7 @@ console.error('Error checking payment:', error);
 function closeModal() {
 document.getElementById('paymentModal').style.display = 'none';
 if (checkInterval) clearInterval(checkInterval);
+if (expiryInterval) clearInterval(expiryInterval);
 }
 
 // ==================== INITIALIZATION ====================
