@@ -25,5 +25,5 @@ module.exports = {
     PRICE_9GB: 5000,
     PRICE_10GB: 5500,
     PRICE_UNLI: 6000,
-    WEBHOOK_TOKEN: "rahasia123" // ganti dengan token Anda
+    WEBHOOK_TOKEN: "" // ganti dengan token Anda
 };
