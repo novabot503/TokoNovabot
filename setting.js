@@ -12,7 +12,7 @@ module.exports = {
     VERSI_WEB: '1.0',
     PAKASIR_PROJECT: "botzmarket",
     PAKASIR_API_KEY: "sHli68x22bvfaee3uChutmmbCSz8DaCh",
-    URL: 'https://toko-novabot.vercel.app',
+    URL: 'https://novabot-store.vercel.app',
     // Harga panel
     PRICE_1GB: 500,
     PRICE_2GB: 1000,
@@ -25,4 +25,5 @@ module.exports = {
     PRICE_9GB: 5000,
     PRICE_10GB: 5500,
     PRICE_UNLI: 6000,
+    WEBHOOK_TOKEN: "rahasia123" // ganti dengan token Anda
 };
