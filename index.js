@@ -56,7 +56,6 @@ let status = transaction.status || '';
 if (typeof status === 'string') {
 status = status.toLowerCase();
 if (status === 'success' || status === 'settled') status = 'paid';
-// Tambahkan penanganan status expired
 if (status === 'expired' || status === 'cancel' || status === 'failed') status = 'expired';
 }
 return {
@@ -266,7 +265,11 @@ throw error;
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 📊 ROUTES API
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-app.post('/api/create-order', async (req, res) => {
+app.post('/api/create-order', (req, res) => {
+// Ambil IP user untuk identifikasi (opsional)
+const userIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+// Lanjutkan seperti biasa
+(async () => {
 try {
 const { email, panel_type } = req.body;
 if (!email || !panel_type) {
@@ -312,7 +315,8 @@ payment_number: payment.payment_number,
 qris_string: payment.qris_string,
 status: 'pending',
 created_at: new Date().toISOString(),
-panel_created: false
+panel_created: false,
+user_ip: userIp // simpan IP untuk referensi
 };
 orders.set(orderId, order);
 const qrUrl = `https://quickchart.io/qr?text=${encodeURIComponent(payment.qris_string)}&size=300&margin=1`;
@@ -328,6 +332,7 @@ success: false,
 message: 'Internal server error' 
 });
 }
+})();
 });
 app.get('/api/check-payment/:orderId', async (req, res) => {
 try {
@@ -373,6 +378,7 @@ success: false,
 message: 'Order tidak ditemukan' 
 });
 }
+// Status yang dianggap sukses
 const paidStatuses = ['paid', 'success', 'settled'];
 if (!paidStatuses.includes(order.status)) {
 return res.status(400).json({ 
@@ -396,6 +402,7 @@ message: 'Gagal membuat panel'
 order.panel_created = true;
 order.panel_data = panelResult;
 orders.set(order_id, order);
+// Notifikasi ke owner (tetap)
 const ownerMsg = `<blockquote>✅ PANEL BARU DIBUAT</blockquote>\n\n` +
 `<b>📅 Waktu:</b> ${new Date().toLocaleString('id-ID')}\n` +
 `<b>📧 Email:</b> ${escapeHTML(order.email)}\n` +
@@ -1384,15 +1391,14 @@ const data = await response.json();
 if (data.success) {
 const statusDiv = document.getElementById('paymentStatus');
 const btn = document.getElementById('checkStatusBtn');
-const paidStatuses = ['paid', 'success', 'settled'];
-if (paidStatuses.includes(data.status)) {
+// Status yang diterima dari backend: 'paid', 'pending', 'expired'
+if (data.status === 'paid') {
 statusDiv.innerHTML = '<i class="fas fa-check-circle"></i> Pembayaran berhasil! Panel sedang dibuat...';
 statusDiv.className = 'status-message success';
 btn.style.background = 'linear-gradient(90deg, #10b981, #059669)';
 btn.innerHTML = '<i class="fas fa-check"></i> Berhasil';
 clearInterval(checkInterval); // Hentikan pengecekan
-// Langsung panggil create-panel tanpa jeda (atau dengan jeda singkat)
-setTimeout(async () => {
+// Langsung panggil create-panel
 try {
 const panelResponse = await fetch('/api/create-panel', {
 method: 'POST',
@@ -1405,12 +1411,12 @@ showPanelData(panelData);
 } else {
 statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Gagal membuat panel: ' + panelData.message;
 statusDiv.className = 'status-message error';
+// Tampilkan tombol coba manual? Bisa ditambahkan, tapi biarkan saja
 }
 } catch (panelError) {
-statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error membuat panel';
+statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error membuat panel, silahkan hubungi admin.';
 statusDiv.className = 'status-message error';
 }
-}, 2000); // jeda 2 detik untuk memberi waktu sistem memproses
 } else if (data.status === 'expired') {
 statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Pembayaran kadaluarsa';
 statusDiv.className = 'status-message error';
