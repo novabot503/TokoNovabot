@@ -415,18 +415,21 @@ app.get('/', (req, res) => {
 <html lang="id">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=0.50, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=0.65, user-scalable=no" />
     <title>Novabot Panel Store</title>
 
     <!-- Favicon -->
     <link rel="icon" href="https://files.catbox.moe/92681q.jpg" type="image/jpeg">
     <link rel="apple-touch-icon" href="https://files.catbox.moe/92681q.jpg">
 
+    <!-- Google Site Verification -->
+    <meta name="google-site-verification" content="sB0bqKK-BcjI8SShBCJWVQptzG3n_SYMBTAgurbRirs" />
+
     <!-- Meta tag untuk semua platform (WhatsApp, Telegram, Facebook, Twitter) - hanya teks, tanpa gambar -->
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://toko-novabot.vercel.app">
     <meta property="og:title" content="Novabot Panel Store">
-    <meta property="og:description" content="Jual panel Pterodactyl terbaik dengan harga terjangkau Pembayaran via QRIS">
+    <meta property="og:description" content="Jual panel Pterodactyl terbaik dengan harga terjangkau. Pembayaran via QRIS.">
     <meta name="twitter:card" content="summary">
 
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Orbitron:wght@500;700;900&family=VT323&display=swap" rel="stylesheet">
