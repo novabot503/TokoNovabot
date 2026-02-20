@@ -55,8 +55,9 @@ const transaction = data.transaction || data || {};
 let status = transaction.status || '';
 if (typeof status === 'string') {
 status = status.toLowerCase();
-if (status === 'success') status = 'paid';
-if (status === 'settled') status = 'paid';
+if (status === 'success' || status === 'settled') status = 'paid';
+// Tambahkan penanganan status expired
+if (status === 'expired' || status === 'cancel' || status === 'failed') status = 'expired';
 }
 return {
 success: true,
@@ -1374,6 +1375,11 @@ currentPanelData = panelData.panel;
 async function checkPaymentStatus(orderId, email, panelType) {
 try {
 const response = await fetch('/api/check-payment/' + orderId);
+if (!response.ok) {
+// Jika response error, jangan hentikan interval, hanya log
+console.error('Network response was not ok');
+return;
+}
 const data = await response.json();
 if (data.success) {
 const statusDiv = document.getElementById('paymentStatus');
@@ -1384,7 +1390,8 @@ statusDiv.innerHTML = '<i class="fas fa-check-circle"></i> Pembayaran berhasil! 
 statusDiv.className = 'status-message success';
 btn.style.background = 'linear-gradient(90deg, #10b981, #059669)';
 btn.innerHTML = '<i class="fas fa-check"></i> Berhasil';
-clearInterval(checkInterval);
+clearInterval(checkInterval); // Hentikan pengecekan
+// Langsung panggil create-panel tanpa jeda (atau dengan jeda singkat)
 setTimeout(async () => {
 try {
 const panelResponse = await fetch('/api/create-panel', {
@@ -1403,19 +1410,25 @@ statusDiv.className = 'status-message error';
 statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error membuat panel';
 statusDiv.className = 'status-message error';
 }
-}, 2000);
+}, 2000); // jeda 2 detik untuk memberi waktu sistem memproses
 } else if (data.status === 'expired') {
 statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Pembayaran kadaluarsa';
 statusDiv.className = 'status-message error';
 btn.style.background = 'linear-gradient(90deg, #ef4444, #dc2626)';
 btn.innerHTML = '<i class="fas fa-times"></i> Gagal';
-clearInterval(checkInterval);
+clearInterval(checkInterval); // Hentikan pengecekan
 } else if (data.status === 'pending') {
 statusDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menunggu pembayaran...';
+statusDiv.className = 'status-message pending';
+} else {
+// Status lain, tetap pending atau unknown
+statusDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Status: ' + data.status;
 statusDiv.className = 'status-message pending';
 }
 }
 } catch (error) {
+// Error fetching, biarkan interval tetap berjalan
+console.error('Error checking payment:', error);
 }
 }
 function closeModal() {
