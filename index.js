@@ -43,8 +43,8 @@ expiryTime = payment.expired_at;
 } else if (data.expired_at) {
 expiryTime = data.expired_at;
 } else {
-// Default 15 menit dari sekarang
-expiryTime = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+// Default 30 DETIK dari sekarang (sesuai permintaan)
+expiryTime = new Date(Date.now() + 30 * 1000).toISOString();
 }
 return {
 success: true,
@@ -567,7 +567,7 @@ res.status(500).json({ success: false, message: 'Internal server error' });
 });
 
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🎨 ROUTE UTAMA (HTML) - DENGAN SLIDER 2 VIDEO
+// 🎨 ROUTE UTAMA (HTML) - DENGAN SLIDER 2 VIDEO + PERMISSION BANNER
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 app.get('/', (req, res) => {
 // Definisikan harga dengan aman
@@ -1062,6 +1062,24 @@ padding-bottom: 80px;
     </style>
 </head>
 <body>
+    <!-- PERMISSION BANNER (AWAL) -->
+    <div id="permissionBanner" style="display: none; position: fixed; top: 60px; left: 0; right: 0; background: var(--primary); color: white; padding: 15px; text-align: center; z-index: 1001; box-shadow: 0 4px 10px rgba(0,0,0,0.3);">
+        <i class="fas fa-bell"></i> Aktifkan verifikasi otomatis agar pembayaran langsung diproses!
+        <button onclick="requestPermission()" style="margin-left: 15px; padding: 8px 20px; background: white; color: var(--primary); border: none; border-radius: 5px; font-weight: bold; cursor: pointer;">
+            Izinkan
+        </button>
+        <button onclick="denyPermission()" style="margin-left: 10px; background: transparent; border: 1px solid white; color: white; padding: 8px 15px; border-radius: 5px; cursor: pointer;">
+            Tolak
+        </button>
+    </div>
+    <!-- OVERLAY UNTUK BLOKIR TRANSAKSI JIKA DITOLAK -->
+    <div id="blockOverlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 2000; justify-content: center; align-items: center; color: white; text-align: center; flex-direction: column;">
+        <i class="fas fa-ban" style="font-size: 50px; color: var(--accent-red); margin-bottom: 20px;"></i>
+        <h2>Transaksi Diblokir</h2>
+        <p style="margin: 20px; max-width: 400px;">Anda harus mengizinkan verifikasi otomatis untuk dapat melakukan transaksi. Refresh halaman dan klik "Izinkan" pada banner.</p>
+        <button onclick="location.reload()" class="yoshi-btn" style="width: auto; padding: 12px 30px;">Refresh Halaman</button>
+    </div>
+
     <!-- HEADER -->
     <div class="custom-header">
         <div class="header-left">
@@ -1213,6 +1231,63 @@ const panelData = [
 { type: 'unli', ram: 'Unlimited', disk: 'Unlimited', cpu: 'Unlimited', price: PRICE_UNLI }
 ];
 
+// ==================== PERMISSION HANDLING ====================
+function checkPermission() {
+    const permission = localStorage.getItem('verificationPermission');
+    if (permission === 'granted') {
+        // sudah diizinkan
+        enableButtons(true);
+        document.getElementById('permissionBanner').style.display = 'none';
+    } else if (permission === 'denied') {
+        // ditolak permanen, tampilkan overlay blokir
+        enableButtons(false);
+        document.getElementById('blockOverlay').style.display = 'flex';
+        document.getElementById('permissionBanner').style.display = 'none';
+    } else {
+        // belum pernah ditanya, tampilkan banner
+        document.getElementById('permissionBanner').style.display = 'block';
+    }
+}
+
+function enableButtons(enabled) {
+    const buttons = document.querySelectorAll('.price-card .yoshi-btn');
+    buttons.forEach(btn => {
+        btn.disabled = !enabled;
+        if (!enabled) {
+            btn.style.opacity = '0.5';
+            btn.style.cursor = 'not-allowed';
+        } else {
+            btn.style.opacity = '1';
+            btn.style.cursor = 'pointer';
+        }
+    });
+}
+
+window.requestPermission = async function() {
+    try {
+        const perm = await Notification.requestPermission();
+        if (perm === 'granted') {
+            localStorage.setItem('verificationPermission', 'granted');
+            document.getElementById('permissionBanner').style.display = 'none';
+            enableButtons(true);
+        } else {
+            // ditolak
+            localStorage.setItem('verificationPermission', 'denied');
+            document.getElementById('blockOverlay').style.display = 'flex';
+            document.getElementById('permissionBanner').style.display = 'none';
+        }
+    } catch (err) {
+        console.error(err);
+        alert('Gagal meminta izin. Coba lagi.');
+    }
+};
+
+window.denyPermission = function() {
+    localStorage.setItem('verificationPermission', 'denied');
+    document.getElementById('blockOverlay').style.display = 'flex';
+    document.getElementById('permissionBanner').style.display = 'none';
+};
+
 // ==================== SLIDER FUNCTIONS ====================
 let currentSlide = 0;
 let slideInterval;
@@ -1333,10 +1408,18 @@ html += \`
 \`;
 });
 grid.innerHTML = html;
+// setelah render, sesuaikan dengan izin
+checkPermission();
 }
 
 // ==================== EMAIL MODAL ====================
 function openEmailModal(panelType, price) {
+    // Cek izin dulu
+    const permission = localStorage.getItem('verificationPermission');
+    if (permission !== 'granted') {
+        alert('Anda harus mengizinkan verifikasi otomatis terlebih dahulu.');
+        return;
+    }
 currentPanelType = panelType;
 currentPrice = price;
 document.getElementById('emailModal').style.display = 'flex';
