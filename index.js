@@ -570,6 +570,8 @@ res.status(500).json({ success: false, message: 'Internal server error' });
 // 🎨 ROUTE UTAMA (HTML) - DENGAN SLIDER 2 VIDEO
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 app.get('/', (req, res) => {
+// Definisikan harga dengan aman
+const safePrice = (val) => val || 500;
 const html = `
 <!DOCTYPE html>
 <html lang="id">
@@ -1094,7 +1096,7 @@ padding-bottom: 80px;
                 <div class="slide">
                     <video src="https://files.catbox.moe/7iyjd5.mp4" autoplay muted loop playsinline></video>
                     <div class="lux-news-content">
-                        <h3>NovaBot Panel v${config.VERSI_WEB}</h3>
+                        <h3>NovaBot Panel v${config.VERSI_WEB || '1.0'}</h3>
                         <p>Panel Pterodactyl siap pakai dengan sistem pembayaran otomatis</p>
                     </div>
                 </div>
@@ -1117,8 +1119,8 @@ padding-bottom: 80px;
         <div class="footer">
             <p>© 2026 NovaBot Panel - All rights reserved</p>
             <p style="margin-top: 10px;">
-                <i class="fab fa-telegram"></i> ${config.DEVELOPER} • 
-                <i class="fas fa-code"></i> Version ${config.VERSI_WEB}
+                <i class="fab fa-telegram"></i> ${config.DEVELOPER || '@Novabot403'} • 
+                <i class="fas fa-code"></i> Version ${config.VERSI_WEB || '1.0'}
             </p>
         </div>
     </div>
@@ -1184,18 +1186,31 @@ let currentPrice = 0;
 let currentPanelType = '';
 let currentEmail = '';
 let currentPanelData = null; // for copy
+// Harga aman
+const PRICE_1GB = ${config.PRICE_1GB || 500};
+const PRICE_2GB = ${config.PRICE_2GB || 500};
+const PRICE_3GB = ${config.PRICE_3GB || 500};
+const PRICE_4GB = ${config.PRICE_4GB || 500};
+const PRICE_5GB = ${config.PRICE_5GB || 500};
+const PRICE_6GB = ${config.PRICE_6GB || 500};
+const PRICE_7GB = ${config.PRICE_7GB || 500};
+const PRICE_8GB = ${config.PRICE_8GB || 500};
+const PRICE_9GB = ${config.PRICE_9GB || 500};
+const PRICE_10GB = ${config.PRICE_10GB || 500};
+const PRICE_UNLI = ${config.PRICE_UNLI || 500};
+
 const panelData = [
-{ type: '1gb', ram: '1GB', disk: '1GB', cpu: '40%', price: ${config.PRICE_1GB || 500} },
-{ type: '2gb', ram: '2GB', disk: '2GB', cpu: '60%', price: ${config.PRICE_2GB || 500} },
-{ type: '3gb', ram: '3GB', disk: '3GB', cpu: '80%', price: ${config.PRICE_3GB || 500} },
-{ type: '4gb', ram: '4GB', disk: '4GB', cpu: '100%', price: ${config.PRICE_4GB || 500} },
-{ type: '5gb', ram: '5GB', disk: '5GB', cpu: '120%', price: ${config.PRICE_5GB || 500} },
-{ type: '6gb', ram: '6GB', disk: '6GB', cpu: '140%', price: ${config.PRICE_6GB || 500} },
-{ type: '7gb', ram: '7GB', disk: '7GB', cpu: '160%', price: ${config.PRICE_7GB || 500} },
-{ type: '8gb', ram: '8GB', disk: '8GB', cpu: '180%', price: ${config.PRICE_8GB || 500} },
-{ type: '9gb', ram: '9GB', disk: '9GB', cpu: '200%', price: ${config.PRICE_9GB || 500} },
-{ type: '10gb', ram: '10GB', disk: '10GB', cpu: '220%', price: ${config.PRICE_10GB || 500} },
-{ type: 'unli', ram: 'Unlimited', disk: 'Unlimited', cpu: 'Unlimited', price: ${config.PRICE_UNLI || 500} }
+{ type: '1gb', ram: '1GB', disk: '1GB', cpu: '40%', price: PRICE_1GB },
+{ type: '2gb', ram: '2GB', disk: '2GB', cpu: '60%', price: PRICE_2GB },
+{ type: '3gb', ram: '3GB', disk: '3GB', cpu: '80%', price: PRICE_3GB },
+{ type: '4gb', ram: '4GB', disk: '4GB', cpu: '100%', price: PRICE_4GB },
+{ type: '5gb', ram: '5GB', disk: '5GB', cpu: '120%', price: PRICE_5GB },
+{ type: '6gb', ram: '6GB', disk: '6GB', cpu: '140%', price: PRICE_6GB },
+{ type: '7gb', ram: '7GB', disk: '7GB', cpu: '160%', price: PRICE_7GB },
+{ type: '8gb', ram: '8GB', disk: '8GB', cpu: '180%', price: PRICE_8GB },
+{ type: '9gb', ram: '9GB', disk: '9GB', cpu: '200%', price: PRICE_9GB },
+{ type: '10gb', ram: '10GB', disk: '10GB', cpu: '220%', price: PRICE_10GB },
+{ type: 'unli', ram: 'Unlimited', disk: 'Unlimited', cpu: 'Unlimited', price: PRICE_UNLI }
 ];
 
 // ==================== SLIDER FUNCTIONS ====================
@@ -1299,6 +1314,7 @@ startSlider();
 // ==================== PRICING CARDS ====================
 function generatePriceCards() {
 const grid = document.getElementById('pricingGrid');
+if (!grid) return;
 let html = '';
 panelData.forEach(panel => {
 html += \`
@@ -1426,8 +1442,9 @@ const expiryDate = new Date(expiryTime);
 expiryInterval = setInterval(() => {
 const now = new Date();
 const diffMs = expiryDate - now;
+const countdownEl = document.getElementById('countdown');
 if (diffMs <= 0) {
-document.getElementById('countdown')?.innerText = '0 menit 0 detik';
+if (countdownEl) countdownEl.innerText = '0 menit 0 detik';
 clearInterval(expiryInterval);
 // Opsional: tampilkan pesan expired jika status masih pending
 const statusDiv = document.getElementById('paymentStatus');
@@ -1439,8 +1456,7 @@ return;
 }
 const diffMin = Math.floor(diffMs / 60000);
 const diffSec = Math.floor((diffMs % 60000) / 1000);
-const el = document.getElementById('countdown');
-if (el) el.innerText = \`\${diffMin} menit \${diffSec} detik\`;
+if (countdownEl) countdownEl.innerText = \`\${diffMin} menit \${diffSec} detik\`;
 }, 1000);
 }
 async function manualCheckStatus() {
@@ -1631,11 +1647,11 @@ console.log(`
 \x1b[1m\x1b[34m╔═╗╦ ╦╦═╗╦ ╦╔╦╗╔═╗╔═╗╦  \x1b[0m
 \x1b[1m\x1b[34m╠═╝╚╦╝╠╦╝║ ║ ║ ║╣ ╠═╝║  \x1b[0m
 \x1b[1m\x1b[34m╩   ╩ ╩╚═╚═╝ ╩ ╚═╝╩  ╩═╝\x1b[0m
-\x1b[1m\x1b[33mN O V A B O T   P A N E L   v${config.VERSI_WEB}\x1b[0m
+\x1b[1m\x1b[33mN O V A B O T   P A N E L   v${config.VERSI_WEB || '1.0'}\x1b[0m
 \x1b[1m\x1b[32m═══════════════════════════════════════\x1b[0m
 🌐 Server: http://${HOST}:${PORT}
-👤 Developer: ${config.DEVELOPER}
-📦 Version: ${config.VERSI_WEB}
+👤 Developer: ${config.DEVELOPER || '@Novabot403'}
+📦 Version: ${config.VERSI_WEB || '1.0'}
 ✅ Server ready!
 `);
 });
