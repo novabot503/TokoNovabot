@@ -52,7 +52,6 @@ const detailUrl = `https://app.pakasir.com/api/transactiondetail?project=${encod
 const response = await fetch(detailUrl);
 const data = await response.json();
 const transaction = data.transaction || data || {};
-// Normalize status
 let status = transaction.status || '';
 if (typeof status === 'string') {
 status = status.toLowerCase();
@@ -82,10 +81,99 @@ throw error;
 }
 
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🖥️ CREATE PTERODACTYL SERVER
+// 🎯 HELPER FUNCTIONS
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-async function createPterodactylServer(userId, panelType, username, serverName = null) {
+function generateRandomPassword(length = 8) {
+const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+let password = '';
+for (let i = 0; i < length; i++) {
+password += chars.charAt(Math.floor(Math.random() * chars.length));
+}
+return password;
+}
+function capitalize(string) {
+return string.charAt(0).toUpperCase() + string.slice(1).toLowerCase();
+}
+function generateOrderId() {
+return `ORDER_${Date.now()}_${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+}
+function escapeHTML(text) {
+if (!text) return '';
+return text.toString()
+.replace(/&/g, '&amp;')
+.replace(/</g, '&lt;')
+.replace(/>/g, '&gt;')
+.replace(/"/g, '&quot;')
+.replace(/'/g, '&#039;');
+}
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 👤 CREATE OR GET PTERODACTYL USER
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+async function createOrGetPterodactylUser(email) {
 try {
+const search = await fetch(`${config.DOMAIN}/api/application/users?filter[email]=${encodeURIComponent(email)}`, {
+method: 'GET',
+headers: {
+'Authorization': `Bearer ${config.PLTA}`,
+'Accept': 'application/json'
+}
+});
+const searchData = await search.json();
+let userId, password, isNew;
+if (searchData.data && searchData.data.length > 0) {
+const existing = searchData.data[0].attributes;
+password = generateRandomPassword(12);
+const update = await fetch(`${config.DOMAIN}/api/application/users/${existing.id}`, {
+method: 'PATCH',
+headers: {
+'Authorization': `Bearer ${config.PLTA}`,
+'Content-Type': 'application/json',
+'Accept': 'application/json'
+},
+body: JSON.stringify({ password: password })
+});
+const updateData = await update.json();
+if (updateData.errors) throw new Error(updateData.errors[0].detail);
+userId = existing.id;
+isNew = false;
+} else {
+const username = email.split('@')[0];
+password = generateRandomPassword(12);
+const create = await fetch(`${config.DOMAIN}/api/application/users`, {
+method: 'POST',
+headers: {
+'Authorization': `Bearer ${config.PLTA}`,
+'Content-Type': 'application/json',
+'Accept': 'application/json'
+},
+body: JSON.stringify({
+username: username,
+email: email,
+first_name: username,
+last_name: 'User',
+password: password
+})
+});
+const createData = await create.json();
+if (createData.errors) throw new Error(createData.errors[0].detail);
+userId = createData.attributes.id;
+isNew = true;
+}
+return { userId, password, isNew };
+} catch (error) {
+throw error;
+}
+}
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🖥️ CREATE PTERODACTYL SERVER (MODIFIED)
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+async function createPterodactylServer(email, panelType, serverName = null) {
+try {
+const userInfo = await createOrGetPterodactylUser(email);
+const userId = userInfo.userId;
+const password = userInfo.password;
 let ram, disk, cpu;
 if (panelType === 'unli' || panelType === 'unlimited') {
 ram = 0;
@@ -109,8 +197,8 @@ default: ram = 1024; disk = 1024; cpu = 40;
 const serverCount = 1;
 const safeServerName = serverName || 
 (panelType === 'unli' || panelType === 'unlimited' 
-? `${capitalize(username)} UNLI Server #${serverCount}`
-: `${capitalize(username)} ${panelType.toUpperCase()} Server #${serverCount}`);
+? `${capitalize(email.split('@')[0])} UNLI Server #${serverCount}`
+: `${capitalize(email.split('@')[0])} ${panelType.toUpperCase()} Server #${serverCount}`);
 const serverResponse = await fetch(`${config.DOMAIN}/api/application/servers`, {
 method: 'POST',
 headers: {
@@ -164,38 +252,14 @@ ram: ram,
 disk: disk,
 cpu: cpu,
 createdAt: new Date().toISOString(),
-panelUrl: `${config.URL}/server/${serverData.attributes.identifier}`
+panelUrl: `${config.URL}/server/${serverData.attributes.identifier}`,
+username: email,
+password: password,
+isNewUser: userInfo.isNew
 };
 } catch (error) {
 throw error;
 }
-}
-
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 🎯 HELPER FUNCTIONS
-//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function generateRandomPassword(length = 8) {
-const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
-let password = '';
-for (let i = 0; i < length; i++) {
-password += chars.charAt(Math.floor(Math.random() * chars.length));
-}
-return password;
-}
-function capitalize(string) {
-return string.charAt(0).toUpperCase() + string.slice(1).toLowerCase();
-}
-function generateOrderId() {
-return `ORDER_${Date.now()}_${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-}
-function escapeHTML(text) {
-if (!text) return '';
-return text.toString()
-.replace(/&/g, '&amp;')
-.replace(/</g, '&lt;')
-.replace(/>/g, '&gt;')
-.replace(/"/g, '&quot;')
-.replace(/'/g, '&#039;');
 }
 
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -265,215 +329,188 @@ message: 'Internal server error'
 }
 });
 app.get('/api/check-payment/:orderId', async (req, res) => {
-    try {
-        const { orderId } = req.params;
-        const paymentStatus = await checkPaymentStatus(orderId);
-        
-        if (!paymentStatus) {
-            return res.status(500).json({ 
-                success: false, 
-                message: 'Gagal memeriksa status pembayaran' 
-            });
-        }
-        const order = orders.get(orderId);
-        if (order) {
-            order.status = paymentStatus.status;
-            orders.set(orderId, order);
-        }
-
-        res.json({
-            success: true,
-            status: paymentStatus.status,
-            order_id: orderId,
-            transaction: paymentStatus.transaction
-        });
-    } catch (error) {
-        res.status(500).json({ 
-            success: false, 
-            message: 'Internal server error' 
-        });
-    }
+try {
+const { orderId } = req.params;
+const paymentStatus = await checkPaymentStatus(orderId);
+if (!paymentStatus) {
+return res.status(500).json({ 
+success: false, 
+message: 'Gagal memeriksa status pembayaran' 
+});
+}
+const order = orders.get(orderId);
+if (order) {
+order.status = paymentStatus.status;
+orders.set(orderId, order);
+}
+res.json({
+success: true,
+status: paymentStatus.status,
+order_id: orderId,
+transaction: paymentStatus.transaction
+});
+} catch (error) {
+res.status(500).json({ 
+success: false, 
+message: 'Internal server error' 
+});
+}
 });
 app.post('/api/create-panel', async (req, res) => {
-    try {
-        const { order_id, email, panel_type } = req.body;
-        
-        if (!order_id) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Order ID diperlukan' 
-            });
-        }
-        const order = orders.get(order_id);
-        if (!order) {
-            return res.status(404).json({ 
-                success: false, 
-                message: 'Order tidak ditemukan' 
-            });
-        }
-
-        // Validasi status pembayaran
-        const paidStatuses = ['paid', 'success', 'settled'];
-        if (!paidStatuses.includes(order.status)) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Pembayaran belum berhasil. Status: ' + order.status 
-            });
-        }
-
-        if (order.panel_created) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Panel sudah dibuat sebelumnya' 
-            });
-        }
-
-        // Buat panel di Pterodactyl
-        const panelResult = await createPterodactylServer(
-            'user_' + Date.now(),
-            panel_type || order.panel_type,
-            (email || order.email).split('@')[0]
-        );
-
-        if (!panelResult.success) {
-            return res.status(500).json({ 
-                success: false, 
-                message: 'Gagal membuat panel' 
-            });
-        }
-
-        // Update order
-        order.panel_created = true;
-        order.panel_data = panelResult;
-        orders.set(order_id, order);
-
-        // Kirim notifikasi ke Telegram dengan format HTML
-        const ownerMsg = `<blockquote>✅ PANEL BARU DIBUAT</blockquote>\n\n` +
-            `<b>📅 Waktu:</b> ${new Date().toLocaleString('id-ID')}\n` +
-            `<b>📧 Email:</b> ${escapeHTML(order.email)}\n` +
-            `<b>📦 Tipe Panel:</b> ${order.panel_type.toUpperCase()}\n` +
-            `<b>💰 Harga:</b> Rp ${order.amount.toLocaleString('id-ID')}\n` +
-            `<b>🆔 Server ID:</b> <code>${panelResult.serverId}</code>\n` +
-            `<b>🏷️ Nama Server:</b> ${escapeHTML(panelResult.name)}\n` +
-            `<b>💾 RAM:</b> ${panelResult.ram === 0 ? 'Unlimited' : panelResult.ram + 'MB'}\n` +
-            `<b>💿 Disk:</b> ${panelResult.disk === 0 ? 'Unlimited' : panelResult.disk + 'MB'}\n` +
-            `<b>⚡ CPU:</b> ${panelResult.cpu === 0 ? 'Unlimited' : panelResult.cpu + '%'}`;
-
-        const ownerKeyboard = {
-            inline_keyboard: [
-                [
-                    { 
-                        text: '🛒 Beli Panel', 
-                        url: config.URL
-                    }
-                ]
-            ]
-        };
-
-        // Kirim notifikasi ke Telegram
-        try {
-            const url = `https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/sendMessage`;
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    chat_id: config.OWNER_ID,
-                    text: ownerMsg,
-                    parse_mode: 'HTML',
-                    reply_markup: ownerKeyboard
-                })
-            });
-            
-            const result = await response.json();
-            if (!result.ok) {
-                // Silent fail for Telegram errors
-            }
-        } catch (telegramError) {
-            // Silent fail for Telegram errors
-        }
-
-        res.json({
-            success: true,
-            panel: panelResult,
-            message: 'Panel berhasil dibuat!'
-        });
-    } catch (error) {
-        res.status(500).json({ 
-            success: false, 
-            message: error.message || 'Internal server error' 
-        });
-    }
+try {
+const { order_id, email, panel_type } = req.body;
+if (!order_id) {
+return res.status(400).json({ 
+success: false, 
+message: 'Order ID diperlukan' 
+});
+}
+const order = orders.get(order_id);
+if (!order) {
+return res.status(404).json({ 
+success: false, 
+message: 'Order tidak ditemukan' 
+});
+}
+const paidStatuses = ['paid', 'success', 'settled'];
+if (!paidStatuses.includes(order.status)) {
+return res.status(400).json({ 
+success: false, 
+message: 'Pembayaran belum berhasil. Status: ' + order.status 
+});
+}
+if (order.panel_created) {
+return res.status(400).json({ 
+success: false, 
+message: 'Panel sudah dibuat sebelumnya' 
+});
+}
+const panelResult = await createPterodactylServer(email || order.email, panel_type || order.panel_type);
+if (!panelResult.success) {
+return res.status(500).json({ 
+success: false, 
+message: 'Gagal membuat panel' 
+});
+}
+order.panel_created = true;
+order.panel_data = panelResult;
+orders.set(order_id, order);
+const ownerMsg = `<blockquote>✅ PANEL BARU DIBUAT</blockquote>\n\n` +
+`<b>📅 Waktu:</b> ${new Date().toLocaleString('id-ID')}\n` +
+`<b>📧 Email:</b> ${escapeHTML(order.email)}\n` +
+`<b>📦 Tipe Panel:</b> ${order.panel_type.toUpperCase()}\n` +
+`<b>💰 Harga:</b> Rp ${order.amount.toLocaleString('id-ID')}\n` +
+`<b>🆔 Server ID:</b> <code>${panelResult.serverId}</code>\n` +
+`<b>🏷️ Nama Server:</b> ${escapeHTML(panelResult.name)}\n` +
+`<b>💾 RAM:</b> ${panelResult.ram === 0 ? 'Unlimited' : panelResult.ram + 'MB'}\n` +
+`<b>💿 Disk:</b> ${panelResult.disk === 0 ? 'Unlimited' : panelResult.disk + 'MB'}\n` +
+`<b>⚡ CPU:</b> ${panelResult.cpu === 0 ? 'Unlimited' : panelResult.cpu + '%'}`;
+const ownerKeyboard = {
+inline_keyboard: [
+[
+{ 
+text: '🛒 Beli Panel', 
+url: config.URL
+}
+]
+]
+};
+try {
+const url = `https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/sendMessage`;
+const response = await fetch(url, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({
+chat_id: config.OWNER_ID,
+text: ownerMsg,
+parse_mode: 'HTML',
+reply_markup: ownerKeyboard
+})
+});
+const result = await response.json();
+if (!result.ok) {
+}
+} catch (telegramError) {
+}
+res.json({
+success: true,
+panel: panelResult,
+message: 'Panel berhasil dibuat!'
+});
+} catch (error) {
+res.status(500).json({ 
+success: false, 
+message: error.message || 'Internal server error' 
+});
+}
 });
 
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 🎨 ROUTE UTAMA (HTML) - DENGAN SLIDER 2 VIDEO
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 app.get('/', (req, res) => {
-    const html = `
+const html = `
 <!DOCTYPE html>
 <html lang="id">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=0.65, user-scalable=no" />
-    <title>Novabot Panel Store</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=0.65, user-scalable=no" />
+<title>Novabot Panel Store</title>
 
-    <!-- Favicon -->
-    <link rel="icon" href="https://files.catbox.moe/92681q.jpg" type="image/jpeg">
-    <link rel="apple-touch-icon" href="https://files.catbox.moe/92681q.jpg">
+<!-- Favicon -->
+<link rel="icon" href="https://files.catbox.moe/92681q.jpg" type="image/jpeg">
+<link rel="apple-touch-icon" href="https://files.catbox.moe/92681q.jpg">
 
-    <!-- Google Site Verification -->
-    <meta name="google-site-verification" content="sB0bqKK-BcjI8SShBCJWVQptzG3n_SYMBTAgurbRirs" />
+<!-- Google Site Verification -->
+<meta name="google-site-verification" content="sB0bqKK-BcjI8SShBCJWVQptzG3n_SYMBTAgurbRirs" />
 
-    <!-- Meta tag untuk semua platform (WhatsApp, Telegram, Facebook, Twitter) - hanya teks, tanpa gambar -->
-    <meta property="og:type" content="website">
-    <meta property="og:url" content="https://toko-novabot.vercel.app">
-    <meta property="og:title" content="Novabot Panel Store">
-    <meta property="og:description" content="Jual panel Pterodactyl terbaik dengan harga terjangkau. Pembayaran via QRIS.">
-    <meta name="twitter:card" content="summary">
+<!-- Meta tag untuk semua platform (WhatsApp, Telegram, Facebook, Twitter) - hanya teks, tanpa gambar -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://toko-novabot.vercel.app">
+<meta property="og:title" content="Novabot Panel Store">
+<meta property="og:description" content="Jual panel Pterodactyl terbaik dengan harga terjangkau. Pembayaran via QRIS.">
+<meta name="twitter:card" content="summary">
 
-    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Orbitron:wght@500;700;900&family=VT323&display=swap" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
-    <style>
-        /* ========================================= */
-        /* 1. RESET & GLOBAL STYLES */
-        /* ========================================= */
-        :root {
-            --bg-main: #02040a;       
-            --bg-card: #0b0f19;       
-            --primary: #3a6df0;       
-            --accent-red: #ff3b30;    
-            --accent-gold: #ffcc00;   
-            --text-main: #ffffff;
-            --text-sub: #8b9bb4;
-            --border-color: #1c2538;
-        }
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Orbitron:wght@500;700;900&family=VT323&display=swap" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+<style>
 
-        * { 
-            box-sizing: border-box; 
-            margin: 0; 
-            padding: 0; 
-            -webkit-tap-highlight-color: transparent; 
-            outline: none;
-        }
+/* ========================================= */
+/* 1. RESET & GLOBAL STYLES */
+/* ========================================= */
+:root {
+--bg-main: #02040a;       
+--bg-card: #0b0f19;       
+--primary: #3a6df0;       
+--accent-red: #ff3b30;    
+--accent-gold: #ffcc00;   
+--text-main: #ffffff;
+--text-sub: #8b9bb4;
+--border-color: #1c2538;
+}
+* { 
+box-sizing: border-box; 
+margin: 0; 
+padding: 0; 
+-webkit-tap-highlight-color: transparent; 
+outline: none;
+}
+body {
+font-family: 'Rajdhani', sans-serif;
+background: var(--bg-main);
+color: var(--text-main);
+min-height: 100vh;
+display: flex;
+flex-direction: column;
+position: relative; 
+overflow-x: hidden; 
+padding-bottom: 80px; 
+}
+::-webkit-scrollbar { width: 0px; }
 
-        body {
-            font-family: 'Rajdhani', sans-serif;
-            background: var(--bg-main);
-            color: var(--text-main);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            position: relative; 
-            overflow-x: hidden; 
-            padding-bottom: 80px; 
-        }
-
-        ::-webkit-scrollbar { width: 0px; }
-
-        /* ========================================= */
-        /* 2. HEADER */
-        /* ========================================= */
+/* ========================================= */
+/* 2. HEADER */
+/* ========================================= */
         .custom-header {
             position: fixed; 
             top: 0; 
@@ -980,397 +1017,436 @@ app.get('/', (req, res) => {
             Masukkan email yang akan digunakan sebagai username panel Pterodactyl Anda
         </p>
 
-        <!-- Input email tanpa ikon (tombol bulat dihapus) -->
-        <div class="email-input-group" style="margin: 30px 0;">
-            <input type="email" id="userEmail" class="email-input" 
-                   placeholder="contoh: novabot@email.com" 
-                   style="padding: 20px; text-align: center;" 
-                   required>
-        </div>
-
-        <div class="button-group">
-            <button class="yoshi-btn" style="background: linear-gradient(90deg, #6b7280, #4b5563);" onclick="closeEmailModal()">
-                <i class="fas fa-times"></i> Batal
-            </button>
-            <button class="email-submit-btn" onclick="submitEmail()">
-                <i class="fas fa-check"></i> Lanjutkan
-            </button>
-        </div>
-
-        <div class="email-note">
-            <i class="fas fa-info-circle"></i> Email ini akan menjadi username login panel Anda. Pastikan Anda mengingatnya.
-        </div>
-    </div>
+<!-- Input email tanpa ikon (tombol bulat dihapus) -->
+<div class="email-input-group" style="margin: 30px 0;">
+<input type="email" id="userEmail" class="email-input" 
+placeholder="contoh: novabot@email.com" 
+style="padding: 20px; text-align: center;" 
+required>
+</div>
+<div class="button-group">
+<button class="yoshi-btn" style="background: linear-gradient(90deg, #6b7280, #4b5563);" onclick="closeEmailModal()">
+<i class="fas fa-times"></i> Batal
+</button>
+<button class="email-submit-btn" onclick="submitEmail()">
+<i class="fas fa-check"></i> Lanjutkan
+</button>
+</div>
+<div class="email-note">
+<i class="fas fa-info-circle"></i> Email ini akan menjadi username login panel Anda. Pastikan Anda mengingatnya.
+</div>
+</div>
 </div>
 
-    <!-- PAYMENT MODAL -->
-    <div id="paymentModal" class="modal">
-        <div class="modal-content">
-            <h2><i class="fas fa-qrcode"></i> Bayar dengan QRIS</h2>
-            <div id="paymentDetails"></div>
-            <div class="button-group">
-                <button class="close-btn" onclick="closeModal()">
-                    <i class="fas fa-times"></i> Tutup
-                </button>
-                <button class="yoshi-btn" id="checkStatusBtn" onclick="manualCheckStatus()">
-                    <i class="fas fa-sync-alt"></i> Cek Status
-                </button>
-            </div>
-        </div>
-    </div>
+<!-- PAYMENT MODAL -->
+<div id="paymentModal" class="modal">
+<div class="modal-content">
+<h2><i class="fas fa-qrcode"></i> Bayar dengan QRIS</h2>
+<div id="paymentDetails"></div>
+<div class="button-group">
+<button class="close-btn" onclick="closeModal()">
+<i class="fas fa-times"></i> Tutup
+</button>
+<button class="yoshi-btn" id="checkStatusBtn" onclick="manualCheckStatus()">
+<i class="fas fa-sync-alt"></i> Cek Status
+</button>
+</div>
+</div>
+</div>
 
-    <script>
-        // ==================== GLOBAL VARIABLES ====================
-        let currentOrder = null;
-        let checkInterval = null;
-        let currentPrice = 0;
-        let currentPanelType = '';
-        let currentEmail = '';
+<script>
+// ==================== GLOBAL VARIABLES ====================
+let currentOrder = null;
+let checkInterval = null;
+let currentPrice = 0;
+let currentPanelType = '';
+let currentEmail = '';
+let currentPanelData = null; // for copy
+const panelData = [
+{ type: '1gb', ram: '1GB', disk: '1GB', cpu: '40%', price: ${config.PRICE_1GB || 500} },
+{ type: '2gb', ram: '2GB', disk: '2GB', cpu: '60%', price: ${config.PRICE_2GB || 500} },
+{ type: '3gb', ram: '3GB', disk: '3GB', cpu: '80%', price: ${config.PRICE_3GB || 500} },
+{ type: '4gb', ram: '4GB', disk: '4GB', cpu: '100%', price: ${config.PRICE_4GB || 500} },
+{ type: '5gb', ram: '5GB', disk: '5GB', cpu: '120%', price: ${config.PRICE_5GB || 500} },
+{ type: '6gb', ram: '6GB', disk: '6GB', cpu: '140%', price: ${config.PRICE_6GB || 500} },
+{ type: '7gb', ram: '7GB', disk: '7GB', cpu: '160%', price: ${config.PRICE_7GB || 500} },
+{ type: '8gb', ram: '8GB', disk: '8GB', cpu: '180%', price: ${config.PRICE_8GB || 500} },
+{ type: '9gb', ram: '9GB', disk: '9GB', cpu: '200%', price: ${config.PRICE_9GB || 500} },
+{ type: '10gb', ram: '10GB', disk: '10GB', cpu: '220%', price: ${config.PRICE_10GB || 500} },
+{ type: 'unli', ram: 'Unlimited', disk: 'Unlimited', cpu: 'Unlimited', price: ${config.PRICE_UNLI || 500} }
+];
 
-        // Panel data dari config
-        const panelData = [
-            { type: '1gb', ram: '1GB', disk: '1GB', cpu: '40%', price: ${config.PRICE_1GB || 500} },
-            { type: '2gb', ram: '2GB', disk: '2GB', cpu: '60%', price: ${config.PRICE_2GB || 500} },
-            { type: '3gb', ram: '3GB', disk: '3GB', cpu: '80%', price: ${config.PRICE_3GB || 500} },
-            { type: '4gb', ram: '4GB', disk: '4GB', cpu: '100%', price: ${config.PRICE_4GB || 500} },
-            { type: '5gb', ram: '5GB', disk: '5GB', cpu: '120%', price: ${config.PRICE_5GB || 500} },
-            { type: '6gb', ram: '6GB', disk: '6GB', cpu: '140%', price: ${config.PRICE_6GB || 500} },
-            { type: '7gb', ram: '7GB', disk: '7GB', cpu: '160%', price: ${config.PRICE_7GB || 500} },
-            { type: '8gb', ram: '8GB', disk: '8GB', cpu: '180%', price: ${config.PRICE_8GB || 500} },
-            { type: '9gb', ram: '9GB', disk: '9GB', cpu: '200%', price: ${config.PRICE_9GB || 500} },
-            { type: '10gb', ram: '10GB', disk: '10GB', cpu: '220%', price: ${config.PRICE_10GB || 500} },
-            { type: 'unli', ram: 'Unlimited', disk: 'Unlimited', cpu: 'Unlimited', price: ${config.PRICE_UNLI || 500} }
-        ];
+// ==================== SLIDER FUNCTIONS ====================
+let currentSlide = 0;
+let slideInterval;
+const SWIPE_THRESHOLD = 80;
+const sliderContainer = document.getElementById('newsSlider');
+const sliderTrack = document.querySelector('.slider-track');
+function startSlider() {
+clearInterval(slideInterval);
+slideInterval = setInterval(nextSlide, 5000);
+}
+function nextSlide() {
+currentSlide = (currentSlide + 1) % 2;
+updateSlider();
+}
+function previousSlide() {
+currentSlide = (currentSlide - 1 + 2) % 2;
+updateSlider();
+}
+function updateSlider() {
+if (sliderTrack) {
+const translateX = -currentSlide * 50;
+sliderTrack.style.transform = \`translateX(\${translateX}%)\`;
+}
+}
+function setupSlider() {
+if (!sliderContainer || !sliderTrack) return;
+let isSwiping = false;
+let startX = 0;
+let currentX = 0;
+function getPositionX(e) {
+return e.type.includes('mouse') ? e.pageX : e.touches[0].clientX;
+}
+sliderContainer.addEventListener('touchstart', (e) => {
+startX = getPositionX(e);
+isSwiping = true;
+clearInterval(slideInterval);
+});
+sliderContainer.addEventListener('touchmove', (e) => {
+if (!isSwiping) return;
+currentX = getPositionX(e);
+const diff = currentX - startX;
+if (Math.abs(diff) > 20) {
+const translateX = -currentSlide * 50 + (diff / sliderContainer.offsetWidth) * 50;
+sliderTrack.style.transform = \`translateX(\${translateX}%)\`;
+}
+});
+sliderContainer.addEventListener('touchend', () => {
+if (!isSwiping) return;
+isSwiping = false;
+const diff = currentX - startX;
+if (Math.abs(diff) > SWIPE_THRESHOLD) {
+if (diff > 0) previousSlide();
+else nextSlide();
+} else {
+updateSlider();
+}
+startSlider();
+});
+sliderContainer.addEventListener('mousedown', (e) => {
+e.preventDefault();
+startX = getPositionX(e);
+isSwiping = true;
+clearInterval(slideInterval);
+sliderContainer.style.cursor = 'grabbing';
+});
+sliderContainer.addEventListener('mousemove', (e) => {
+if (!isSwiping) return;
+e.preventDefault();
+currentX = getPositionX(e);
+const diff = currentX - startX;
+if (Math.abs(diff) > 20) {
+const translateX = -currentSlide * 50 + (diff / sliderContainer.offsetWidth) * 50;
+sliderTrack.style.transform = \`translateX(\${translateX}%)\`;
+}
+});
+sliderContainer.addEventListener('mouseup', () => {
+if (!isSwiping) return;
+isSwiping = false;
+sliderContainer.style.cursor = 'grab';
+const diff = currentX - startX;
+if (Math.abs(diff) > SWIPE_THRESHOLD) {
+if (diff > 0) previousSlide();
+else nextSlide();
+} else {
+updateSlider();
+}
+startSlider();
+});
+sliderContainer.addEventListener('mouseleave', () => {
+if (isSwiping) {
+isSwiping = false;
+sliderContainer.style.cursor = 'grab';
+updateSlider();
+startSlider();
+}
+});
+}
 
-        // ==================== SLIDER FUNCTIONS ====================
-        let currentSlide = 0;
-        let slideInterval;
-        const SWIPE_THRESHOLD = 80;
-        const sliderContainer = document.getElementById('newsSlider');
-        const sliderTrack = document.querySelector('.slider-track');
+// ==================== PRICING CARDS ====================
+function generatePriceCards() {
+const grid = document.getElementById('pricingGrid');
+let html = '';
+panelData.forEach(panel => {
+html += \`
+<div class="price-card">
+<div class="panel-type">\${panel.type.toUpperCase()}</div>
+<div class="panel-specs">
+<div><i class="fas fa-memory"></i> RAM: \${panel.ram}</div>
+<div><i class="fas fa-hdd"></i> DISK: \${panel.disk}</div>
+<div><i class="fas fa-microchip"></i> CPU: \${panel.cpu}</div>
+</div>
+<div class="price">Rp \${panel.price.toLocaleString('id-ID')}</div>
+<button class="yoshi-btn" onclick="openEmailModal('\${panel.type}', \${panel.price})">
+<i class="fas fa-shopping-cart"></i> BELI SEKARANG
+</button>
+</div>
+\`;
+});
+grid.innerHTML = html;
+}
 
-        function startSlider() {
-            clearInterval(slideInterval);
-            slideInterval = setInterval(nextSlide, 5000);
-        }
+// ==================== EMAIL MODAL ====================
+function openEmailModal(panelType, price) {
+currentPanelType = panelType;
+currentPrice = price;
+document.getElementById('emailModal').style.display = 'flex';
+document.getElementById('userEmail').focus();
+}
+function closeEmailModal() {
+document.getElementById('emailModal').style.display = 'none';
+document.getElementById('userEmail').value = '';
+}
+async function submitEmail() {
+const emailInput = document.getElementById('userEmail');
+const email = emailInput.value.trim();
+if (!email || !email.includes('@') || !email.includes('.')) {
+alert('Masukkan email yang valid!');
+emailInput.focus();
+return;
+}
+currentEmail = email;
+closeEmailModal();
+await createOrder(email, currentPanelType, currentPrice);
+}
 
-        function nextSlide() {
-            currentSlide = (currentSlide + 1) % 2;
-            updateSlider();
-        }
+// ==================== ORDER & PAYMENT ====================
+async function createOrder(email, panelType, price) {
+try {
+const response = await fetch('/api/create-order', {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({ email, panel_type: panelType })
+});
+const data = await response.json();
+if (data.success) {
+currentOrder = data.order;
+showPaymentModal(data, email, panelType);
+startPaymentCheck(data.order.order_id, email, panelType);
+} else {
+alert(data.message || 'Gagal membuat order');
+}
+} catch (error) {
+alert('Terjadi kesalahan, silahkan coba lagi');
+}
+}
+function showPaymentModal(data, email, panelType) {
+const modal = document.getElementById('paymentModal');
+const details = document.getElementById('paymentDetails');
+let html = \`
+<div style="text-align: left; margin-bottom: 20px;">
+<div style="margin-bottom: 10px;">
+<strong>Order ID:</strong><br>
+<span style="color: var(--text-sub); font-family: monospace;">\${data.order.order_id}</span>
+</div>
+<div style="margin-bottom: 10px;">
+<strong>Email:</strong><br>
+<span style="color: var(--text-sub);">\${email}</span>
+</div>
+<div style="margin-bottom: 10px;">
+<strong>Panel Type:</strong><br>
+<span style="color: var(--accent-gold);">\${panelType.toUpperCase()}</span>
+</div>
+<div style="margin-bottom: 10px;">
+<strong>Total Pembayaran:</strong><br>
+<span style="font-size: 1.5rem; color: var(--accent-gold);">
+Rp \${currentPrice.toLocaleString('id-ID')}
+</span>
+</div>
+</div>
+<div class="qr-container">
+<img src="\${data.qr_url}" alt="QR Code">
+</div>
+\${data.order.qris_string ? \`
+<div style="margin: 15px 0;">
+<div><strong>QRIS String:</strong></div>
+<div class="payment-info">\${data.order.qris_string}</div>
+<small style="color: var(--text-sub);">Scan dengan aplikasi e-wallet Anda</small>
+</div>
+\` : ''}
+<div id="paymentStatus" class="status-message pending">
+<i class="fas fa-spinner fa-spin"></i> Menunggu pembayaran...
+</div>
+\`;
+details.innerHTML = html;
+modal.style.display = 'flex';
+}
+async function manualCheckStatus() {
+if (!currentOrder) return;
+const btn = document.getElementById('checkStatusBtn');
+const originalHtml = btn.innerHTML;
+btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Memeriksa...';
+btn.disabled = true;
+await checkPaymentStatus(currentOrder.order_id, currentEmail, currentPanelType);
+setTimeout(() => {
+btn.innerHTML = originalHtml;
+btn.disabled = false;
+}, 1000);
+}
+function startPaymentCheck(orderId, email, panelType) {
+if (checkInterval) clearInterval(checkInterval);
+checkInterval = setInterval(async () => {
+await checkPaymentStatus(orderId, email, panelType);
+}, 3000);
+}
+function escapeHTML(text) {
+if (!text) return '';
+return String(text)
+.replace(/&/g, '&amp;')
+.replace(/</g, '&lt;')
+.replace(/>/g, '&gt;')
+.replace(/"/g, '&quot;')
+.replace(/'/g, '&#039;');
+}
+function copyAllData() {
+if (!currentPanelData) return;
+const d = currentPanelData;
+const text = \`Status: Aktif
+Panel: \${d.panelType.toUpperCase()}
+Email: \${d.username}
+Server ID: \${d.serverId}
+Nama Server: \${d.name}
+Memory: \${d.ram === 0 ? 'Unlimited' : d.ram + 'MB'}
+Disk: \${d.disk === 0 ? 'Unlimited' : d.disk + 'MB'}
+CPU: \${d.cpu === 0 ? 'Unlimited' : d.cpu + '%'}
+Username: \${d.username}
+Password: \${d.password}
 
-        function previousSlide() {
-            currentSlide = (currentSlide - 1 + 2) % 2;
-            updateSlider();
-        }
+📝 Rules:
+- Dilarang DDoS Server
+- Wajib sensor domain di screenshot
+- Admin hanya kirim 1x data
+- Jangan bagikan ke orang lain\`;
+navigator.clipboard.writeText(text).then(() => {
+alert('✅ Semua data berhasil disalin!');
+}).catch(() => {
+alert('❌ Gagal menyalin, silakan salin manual.');
+});
+}
+function showPanelData(panelData) {
+const details = document.getElementById('paymentDetails');
+const statusDiv = document.getElementById('paymentStatus');
+const btn = document.getElementById('checkStatusBtn');
+btn.style.display = 'none';
+statusDiv.style.display = 'none';
+const html = \`
+<div style="text-align: left;">
+<blockquote style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 10px; border-left: 4px solid var(--primary);">
+<b>Status:</b> Aktif<br>
+<b>Panel:</b> \${panelData.panel.panelType.toUpperCase()}<br>
+<b>Email:</b> \${escapeHTML(panelData.panel.username)}<br>
+<b>Server ID:</b> <code>\${panelData.panel.serverId}</code><br>
+<b>Nama Server:</b> \${escapeHTML(panelData.panel.name)}<br>
+<b>Memory:</b> \${panelData.panel.ram === 0 ? 'Unlimited' : panelData.panel.ram + 'MB'}<br>
+<b>Disk:</b> \${panelData.panel.disk === 0 ? 'Unlimited' : panelData.panel.disk + 'MB'}<br>
+<b>CPU:</b> \${panelData.panel.cpu === 0 ? 'Unlimited' : panelData.panel.cpu + '%'}<br>
+</blockquote>
+<blockquote style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 10px; border-left: 4px solid var(--accent-gold);">
+<b>Username:</b> <code>\${escapeHTML(panelData.panel.username)}</code><br>
+<b>Password:</b> <code>\${escapeHTML(panelData.panel.password)}</code><br>
+</blockquote>
+<blockquote style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 10px; border-left: 4px solid var(--accent-red);">
+<b>📝 Rules:</b><br>
+• Dilarang DDoS Server<br>
+• Wajib sensor domain di screenshot<br>
+• Admin hanya kirim 1x data<br>
+• Jangan bagikan ke orang lain
+</blockquote>
+<button class="yoshi-btn" onclick="copyAllData()" style="margin-top: 20px;">
+<i class="fas fa-copy"></i> Salin Semua Data
+</button>
+</div>
+\`;
+details.innerHTML = html;
+currentPanelData = panelData.panel;
+}
+async function checkPaymentStatus(orderId, email, panelType) {
+try {
+const response = await fetch('/api/check-payment/' + orderId);
+const data = await response.json();
+if (data.success) {
+const statusDiv = document.getElementById('paymentStatus');
+const btn = document.getElementById('checkStatusBtn');
+const paidStatuses = ['paid', 'success', 'settled'];
+if (paidStatuses.includes(data.status)) {
+statusDiv.innerHTML = '<i class="fas fa-check-circle"></i> Pembayaran berhasil! Panel sedang dibuat...';
+statusDiv.className = 'status-message success';
+btn.style.background = 'linear-gradient(90deg, #10b981, #059669)';
+btn.innerHTML = '<i class="fas fa-check"></i> Berhasil';
+clearInterval(checkInterval);
+setTimeout(async () => {
+try {
+const panelResponse = await fetch('/api/create-panel', {
+method: 'POST',
+headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({ order_id: orderId, email, panel_type: panelType })
+});
+const panelData = await panelResponse.json();
+if (panelData.success) {
+showPanelData(panelData);
+} else {
+statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Gagal membuat panel: ' + panelData.message;
+statusDiv.className = 'status-message error';
+}
+} catch (panelError) {
+statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error membuat panel';
+statusDiv.className = 'status-message error';
+}
+}, 2000);
+} else if (data.status === 'expired') {
+statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Pembayaran kadaluarsa';
+statusDiv.className = 'status-message error';
+btn.style.background = 'linear-gradient(90deg, #ef4444, #dc2626)';
+btn.innerHTML = '<i class="fas fa-times"></i> Gagal';
+clearInterval(checkInterval);
+} else if (data.status === 'pending') {
+statusDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menunggu pembayaran...';
+statusDiv.className = 'status-message pending';
+}
+}
+} catch (error) {
+}
+}
+function closeModal() {
+document.getElementById('paymentModal').style.display = 'none';
+if (checkInterval) clearInterval(checkInterval);
+}
 
-        function updateSlider() {
-            if (sliderTrack) {
-                const translateX = -currentSlide * 50;
-                sliderTrack.style.transform = \`translateX(\${translateX}%)\`;
-            }
-        }
-
-        function setupSlider() {
-            if (!sliderContainer || !sliderTrack) return;
-
-            let isSwiping = false;
-            let startX = 0;
-            let currentX = 0;
-
-            function getPositionX(e) {
-                return e.type.includes('mouse') ? e.pageX : e.touches[0].clientX;
-            }
-
-            sliderContainer.addEventListener('touchstart', (e) => {
-                startX = getPositionX(e);
-                isSwiping = true;
-                clearInterval(slideInterval);
-            });
-
-            sliderContainer.addEventListener('touchmove', (e) => {
-                if (!isSwiping) return;
-                currentX = getPositionX(e);
-                const diff = currentX - startX;
-                if (Math.abs(diff) > 20) {
-                    const translateX = -currentSlide * 50 + (diff / sliderContainer.offsetWidth) * 50;
-                    sliderTrack.style.transform = \`translateX(\${translateX}%)\`;
-                }
-            });
-
-            sliderContainer.addEventListener('touchend', () => {
-                if (!isSwiping) return;
-                isSwiping = false;
-                const diff = currentX - startX;
-                if (Math.abs(diff) > SWIPE_THRESHOLD) {
-                    if (diff > 0) previousSlide();
-                    else nextSlide();
-                } else {
-                    updateSlider();
-                }
-                startSlider();
-            });
-
-            sliderContainer.addEventListener('mousedown', (e) => {
-                e.preventDefault();
-                startX = getPositionX(e);
-                isSwiping = true;
-                clearInterval(slideInterval);
-                sliderContainer.style.cursor = 'grabbing';
-            });
-
-            sliderContainer.addEventListener('mousemove', (e) => {
-                if (!isSwiping) return;
-                e.preventDefault();
-                currentX = getPositionX(e);
-                const diff = currentX - startX;
-                if (Math.abs(diff) > 20) {
-                    const translateX = -currentSlide * 50 + (diff / sliderContainer.offsetWidth) * 50;
-                    sliderTrack.style.transform = \`translateX(\${translateX}%)\`;
-                }
-            });
-
-            sliderContainer.addEventListener('mouseup', () => {
-                if (!isSwiping) return;
-                isSwiping = false;
-                sliderContainer.style.cursor = 'grab';
-                const diff = currentX - startX;
-                if (Math.abs(diff) > SWIPE_THRESHOLD) {
-                    if (diff > 0) previousSlide();
-                    else nextSlide();
-                } else {
-                    updateSlider();
-                }
-                startSlider();
-            });
-
-            sliderContainer.addEventListener('mouseleave', () => {
-                if (isSwiping) {
-                    isSwiping = false;
-                    sliderContainer.style.cursor = 'grab';
-                    updateSlider();
-                    startSlider();
-                }
-            });
-        }
-
-        // ==================== PRICING CARDS ====================
-        function generatePriceCards() {
-            const grid = document.getElementById('pricingGrid');
-            let html = '';
-            panelData.forEach(panel => {
-                html += \`
-                <div class="price-card">
-                    <div class="panel-type">\${panel.type.toUpperCase()}</div>
-                    <div class="panel-specs">
-                        <div><i class="fas fa-memory"></i> RAM: \${panel.ram}</div>
-                        <div><i class="fas fa-hdd"></i> DISK: \${panel.disk}</div>
-                        <div><i class="fas fa-microchip"></i> CPU: \${panel.cpu}</div>
-                    </div>
-                    <div class="price">Rp \${panel.price.toLocaleString('id-ID')}</div>
-                    <button class="yoshi-btn" onclick="openEmailModal('\${panel.type}', \${panel.price})">
-                        <i class="fas fa-shopping-cart"></i> BELI SEKARANG
-                    </button>
-                </div>
-                \`;
-            });
-            grid.innerHTML = html;
-        }
-
-        // ==================== EMAIL MODAL ====================
-        function openEmailModal(panelType, price) {
-            currentPanelType = panelType;
-            currentPrice = price;
-            document.getElementById('emailModal').style.display = 'flex';
-            document.getElementById('userEmail').focus();
-        }
-
-        function closeEmailModal() {
-            document.getElementById('emailModal').style.display = 'none';
-            document.getElementById('userEmail').value = '';
-        }
-
-        async function submitEmail() {
-            const emailInput = document.getElementById('userEmail');
-            const email = emailInput.value.trim();
-            if (!email || !email.includes('@') || !email.includes('.')) {
-                alert('Masukkan email yang valid!');
-                emailInput.focus();
-                return;
-            }
-            currentEmail = email;
-            closeEmailModal();
-            await createOrder(email, currentPanelType, currentPrice);
-        }
-
-        // ==================== ORDER & PAYMENT ====================
-        async function createOrder(email, panelType, price) {
-            try {
-                const response = await fetch('/api/create-order', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, panel_type: panelType })
-                });
-                const data = await response.json();
-                if (data.success) {
-                    currentOrder = data.order;
-                    showPaymentModal(data, email, panelType);
-                    startPaymentCheck(data.order.order_id, email, panelType);
-                } else {
-                    alert(data.message || 'Gagal membuat order');
-                }
-            } catch (error) {
-                alert('Terjadi kesalahan, silahkan coba lagi');
-            }
-        }
-
-        function showPaymentModal(data, email, panelType) {
-            const modal = document.getElementById('paymentModal');
-            const details = document.getElementById('paymentDetails');
-            let html = \`
-                <div style="text-align: left; margin-bottom: 20px;">
-                    <div style="margin-bottom: 10px;">
-                        <strong>Order ID:</strong><br>
-                        <span style="color: var(--text-sub); font-family: monospace;">\${data.order.order_id}</span>
-                    </div>
-                    <div style="margin-bottom: 10px;">
-                        <strong>Email:</strong><br>
-                        <span style="color: var(--text-sub);">\${email}</span>
-                    </div>
-                    <div style="margin-bottom: 10px;">
-                        <strong>Panel Type:</strong><br>
-                        <span style="color: var(--accent-gold);">\${panelType.toUpperCase()}</span>
-                    </div>
-                    <div style="margin-bottom: 10px;">
-                        <strong>Total Pembayaran:</strong><br>
-                        <span style="font-size: 1.5rem; color: var(--accent-gold);">
-                            Rp \${currentPrice.toLocaleString('id-ID')}
-                        </span>
-                    </div>
-                </div>
-                <div class="qr-container">
-                    <img src="\${data.qr_url}" alt="QR Code">
-                </div>
-                \${data.order.qris_string ? \`
-                <div style="margin: 15px 0;">
-                    <div><strong>QRIS String:</strong></div>
-                    <div class="payment-info">\${data.order.qris_string}</div>
-                    <small style="color: var(--text-sub);">Scan dengan aplikasi e-wallet Anda</small>
-                </div>
-                \` : ''}
-                <div id="paymentStatus" class="status-message pending">
-                    <i class="fas fa-spinner fa-spin"></i> Menunggu pembayaran...
-                </div>
-            \`;
-            details.innerHTML = html;
-            modal.style.display = 'flex';
-        }
-
-        async function manualCheckStatus() {
-            if (!currentOrder) return;
-            const btn = document.getElementById('checkStatusBtn');
-            const originalHtml = btn.innerHTML;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Memeriksa...';
-            btn.disabled = true;
-            await checkPaymentStatus(currentOrder.order_id, currentEmail, currentPanelType);
-            setTimeout(() => {
-                btn.innerHTML = originalHtml;
-                btn.disabled = false;
-            }, 1000);
-        }
-
-        function startPaymentCheck(orderId, email, panelType) {
-            if (checkInterval) clearInterval(checkInterval);
-            checkInterval = setInterval(async () => {
-                await checkPaymentStatus(orderId, email, panelType);
-            }, 3000);
-        }
-
-        async function checkPaymentStatus(orderId, email, panelType) {
-            try {
-                const response = await fetch('/api/check-payment/' + orderId);
-                const data = await response.json();
-                if (data.success) {
-                    const statusDiv = document.getElementById('paymentStatus');
-                    const btn = document.getElementById('checkStatusBtn');
-                    const paidStatuses = ['paid', 'success', 'settled'];
-                    if (paidStatuses.includes(data.status)) {
-                        statusDiv.innerHTML = '<i class="fas fa-check-circle"></i> Pembayaran berhasil! Panel sedang dibuat...';
-                        statusDiv.className = 'status-message success';
-                        btn.style.background = 'linear-gradient(90deg, #10b981, #059669)';
-                        btn.innerHTML = '<i class="fas fa-check"></i> Berhasil';
-                        clearInterval(checkInterval);
-                        setTimeout(async () => {
-                            try {
-                                const panelResponse = await fetch('/api/create-panel', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ order_id: orderId, email, panel_type: panelType })
-                                });
-                                const panelData = await panelResponse.json();
-                                if (panelData.success) {
-                                    statusDiv.innerHTML = '<i class="fas fa-check-circle"></i> Panel berhasil dibuat!';
-                                    alert(\`✅ Panel berhasil dibuat!\\n\\n📧 Email: \${email}\\n📦 Panel: \${panelType.toUpperCase()}\\n🆔 Order ID: \${orderId}\\n\\nSilahkan cek email untuk informasi lebih lanjut.\`);
-                                } else {
-                                    statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Gagal membuat panel: ' + panelData.message;
-                                    statusDiv.className = 'status-message error';
-                                }
-                            } catch (panelError) {
-                                statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error membuat panel';
-                                statusDiv.className = 'status-message error';
-                            }
-                        }, 2000);
-                    } else if (data.status === 'expired') {
-                        statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Pembayaran kadaluarsa';
-                        statusDiv.className = 'status-message error';
-                        btn.style.background = 'linear-gradient(90deg, #ef4444, #dc2626)';
-                        btn.innerHTML = '<i class="fas fa-times"></i> Gagal';
-                        clearInterval(checkInterval);
-                    } else if (data.status === 'pending') {
-                        statusDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menunggu pembayaran...';
-                        statusDiv.className = 'status-message pending';
-                    }
-                }
-            } catch (error) {
-                // silent
-            }
-        }
-
-        function closeModal() {
-            document.getElementById('paymentModal').style.display = 'none';
-            if (checkInterval) clearInterval(checkInterval);
-        }
-
-        // ==================== INITIALIZATION ====================
-        document.addEventListener('DOMContentLoaded', function() {
-            generatePriceCards();
-            setupSlider();
-            startSlider();
-
-            // Auto-play video
-            const videos = document.querySelectorAll('video');
-            videos.forEach(video => {
-                video.play().catch(e => {});
-            });
-
-            // Enter key untuk email modal
-            document.getElementById('userEmail')?.addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') submitEmail();
-            });
-        });
-
-        // Prevent right-click & dev tools (opsional)
-        document.addEventListener('contextmenu', e => e.preventDefault());
-        document.addEventListener('keydown', e => {
-            if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I') || (e.ctrlKey && e.key === 'U')) {
-                e.preventDefault();
-            }
-        });
-    </script>
+// ==================== INITIALIZATION ====================
+document.addEventListener('DOMContentLoaded', function() {
+generatePriceCards();
+setupSlider();
+startSlider();
+const videos = document.querySelectorAll('video');
+videos.forEach(video => {
+video.play().catch(e => {});
+});
+document.getElementById('userEmail')?.addEventListener('keypress', function(e) {
+if (e.key === 'Enter') submitEmail();
+});
+});
+document.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('keydown', e => {
+if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I') || (e.ctrlKey && e.key === 'U')) {
+e.preventDefault();
+}
+});
+</script>
 </body>
 </html>
 `;
-    res.send(html);
+res.send(html);
 });
 
 //━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
